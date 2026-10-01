@@ -1,94 +1,53 @@
 import React from 'react';
 import {
-  Printer,
-  Share2,
-  FolderOpen,
-  Plus,
   Sparkles,
+  RotateCcw,
+  Image as ImageIcon,
+  Share2,
 } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'checklist' | 'order_info' | 'summary';
-  setActiveTab: (tab: 'checklist' | 'order_info' | 'summary') => void;
-  onNewOrder: () => void;
-  onOpenHistory: () => void;
-  onPrint: () => void;
+  onResetTest: () => void;
+  onGenerateImage: () => void;
   onShareWhatsApp: () => void;
-  onOpenTester: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  activeTab,
-  setActiveTab,
-  onNewOrder,
-  onOpenHistory,
-  onPrint,
+  onResetTest,
+  onGenerateImage,
   onShareWhatsApp,
-  onOpenTester,
 }) => {
   return (
     <header className="no-print sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-slate-800 bg-slate-900/95 backdrop-blur-md">
-      {/* Zone 1: Single text element wordmark */}
+      {/* Wordmark */}
       <div className="flex items-center gap-3">
-        <a
-          href="#home"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('checklist');
-          }}
-          className="text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors whitespace-nowrap"
-        >
-          TechCheck OS
-        </a>
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+              TechCheck Celular
+              <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-normal">
+                Bancada de Testes
+              </span>
+            </h1>
+          </div>
+        </div>
       </div>
 
-      {/* Zone 2: Clean navigation links */}
-      <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-400">
-        <button
-          type="button"
-          onClick={() => setActiveTab('checklist')}
-          className={`transition-colors whitespace-nowrap ${
-            activeTab === 'checklist'
-              ? 'text-emerald-400 font-semibold underline underline-offset-8 decoration-2 decoration-emerald-500'
-              : 'hover:text-slate-200'
-          }`}
-        >
-          Setor Checklist (17 Itens)
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('order_info')}
-          className={`transition-colors whitespace-nowrap ${
-            activeTab === 'order_info'
-              ? 'text-emerald-400 font-semibold underline underline-offset-8 decoration-2 decoration-emerald-500'
-              : 'hover:text-slate-200'
-          }`}
-        >
-          Dados da OS & Aparelho
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenTester}
-          className="flex items-center gap-1.5 text-slate-300 hover:text-emerald-400 transition-colors whitespace-nowrap"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Laboratório de Teste</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenHistory}
-          className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap"
-        >
-          <FolderOpen className="w-3.5 h-3.5" />
-          <span>Ordens Salvas</span>
-        </button>
-      </nav>
-
-      {/* Zone 3: 1-2 primary actions */}
+      {/* Direct primary actions */}
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onResetTest}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap border border-slate-700"
+          title="Limpar todos os campos e iniciar novo teste"
+        >
+          <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+          <span className="hidden sm:inline">Limpar Testes</span>
+        </button>
+
         <button
           type="button"
           onClick={onShareWhatsApp}
@@ -101,21 +60,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           type="button"
-          onClick={onPrint}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap border border-slate-700"
-          title="Imprimir Ordem de Serviço em A4 ou PDF"
+          onClick={onGenerateImage}
+          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors whitespace-nowrap shadow-md shadow-emerald-950/50 active:scale-95 cursor-pointer"
         >
-          <Printer className="w-3.5 h-3.5 text-blue-400" />
-          <span>Imprimir OS</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onNewOrder}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors whitespace-nowrap shadow-xs"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Nova OS</span>
+          <ImageIcon className="w-4 h-4" />
+          <span>Gerar Imagem do Teste</span>
         </button>
       </div>
     </header>

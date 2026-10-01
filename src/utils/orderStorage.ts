@@ -1,5 +1,5 @@
 import { ServiceOrder } from '../types/order';
-import { createDefaultChecklist } from '../data/initialChecklist';
+import { createEmptyChecklist } from '../data/initialChecklist';
 
 const STORAGE_KEY = 'techcheck_service_orders_v1';
 const ACTIVE_ORDER_ID_KEY = 'techcheck_active_order_id';
@@ -54,7 +54,7 @@ export const createNewOrder = (type: 'entry' | 'exit' = 'entry'): ServiceOrder =
         notes: '',
       },
     },
-    checklist: createDefaultChecklist(),
+    checklist: createEmptyChecklist(),
     budget: {
       technicianName: 'Bancada Lab 01',
       reportedDefect: '',

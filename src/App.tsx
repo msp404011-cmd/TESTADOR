@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import {
   ServiceOrder,
   ChecklistItemKey,
@@ -11,59 +11,36 @@ import {
   ChecklistRecord,
 } from './types/order';
 import {
-  loadOrdersFromStorage,
-  saveOrdersToStorage,
   createNewOrder,
-  getActiveOrderId,
-  setActiveOrderId,
   buildWhatsAppMessage,
 } from './utils/orderStorage';
+import { createEmptyChecklist } from './data/initialChecklist';
 import { Header } from './components/Header';
 import { ChecklistSection } from './components/ChecklistSection';
-import { OrderInfoForm } from './components/OrderInfoForm';
 import { HardwareTesterModal } from './components/HardwareTesterModal';
-import { PatternUnlockModal } from './components/PatternUnlockModal';
 import { FullscreenTouchTester } from './components/FullscreenTouchTester';
-import { HistoryDrawer } from './components/HistoryDrawer';
-import { PrintableServiceOrder } from './components/PrintableServiceOrder';
+import { TestImagePreviewModal } from './components/TestImagePreviewModal';
+import { generateTestReportImage, calculateReportStats } from './utils/generateTestReportImage';
 import {
-  Sparkles,
-  Printer,
-  Share2,
-  FolderOpen,
   CheckCircle,
-  FileText,
-  Smartphone,
-  Check,
+  Image as ImageIcon,
+  Share2,
+  Sparkles,
 } from 'lucide-react';
 
 export default function App() {
-  const [orders, setOrders] = useState<ServiceOrder[]>(() => loadOrdersFromStorage());
-  const [activeOrderId, setActiveId] = useState<string>(() => {
-    const saved = getActiveOrderId();
-    if (saved && orders.some((o) => o.id === saved)) return saved;
-    return orders[0]?.id || '';
-  });
+  // Always starts completely fresh and zeroed whenever the link is opened
+  const [currentOrder, setCurrentOrder] = useState<ServiceOrder>(() => createNewOrder());
 
-  const [activeTab, setActiveTab] = useState<'checklist' | 'order_info' | 'summary'>('checklist');
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   const [isFullscreenTouchOpen, setIsFullscreenTouchOpen] = useState(false);
   const [testerKey, setTesterKey] = useState<ChecklistItemKey | null>(null);
-  const [isPatternOpen, setIsPatternOpen] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Sync active order ID to storage
-  useEffect(() => {
-    if (activeOrderId) {
-      setActiveOrderId(activeOrderId);
-    }
-  }, [activeOrderId]);
-
-  // Sync orders to storage
-  useEffect(() => {
-    saveOrdersToStorage(orders);
-  }, [orders]);
+  // Image preview modal state
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+  const [reportImageDataUrl, setReportImageDataUrl] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   const toastTimerRef = useRef<number | null>(null);
 
@@ -75,13 +52,6 @@ export default function App() {
     }, 2500);
   };
 
-  const currentOrder = orders.find((o) => o.id === activeOrderId) || orders[0] || createNewOrder();
-
-  const handleUpdateCurrentOrder = (updated: ServiceOrder) => {
-    const nextOrders = orders.map((o) => (o.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : o));
-    setOrders(nextOrders);
-  };
-
   const handleUpdateChecklistItem = (key: ChecklistItemKey, partial: Partial<ChecklistItemState>) => {
     const existing = currentOrder.checklist[key] || { status: '', observation: '' };
     const updatedChecklist: ChecklistRecord = {
@@ -91,46 +61,29 @@ export default function App() {
         ...partial,
       },
     };
-    handleUpdateCurrentOrder({
+    setCurrentOrder({
       ...currentOrder,
       checklist: updatedChecklist,
+      updatedAt: new Date().toISOString(),
     });
   };
 
   const handleBulkChecklistUpdate = (newChecklist: ChecklistRecord) => {
-    handleUpdateCurrentOrder({
+    setCurrentOrder({
       ...currentOrder,
       checklist: newChecklist,
+      updatedAt: new Date().toISOString(),
     });
-    showToast('Checklist atualizado com sucesso!');
+    showToast('Checklist atualizado!');
   };
 
-  const handleNewOrder = () => {
-    const newOrd = createNewOrder();
-    const updatedList = [newOrd, ...orders];
-    setOrders(updatedList);
-    setActiveId(newOrd.id);
-    setActiveTab('checklist');
-    showToast(`Nova Ordem ${newOrd.orderNumber} iniciada!`);
-  };
-
-  const handleDeleteOrder = (id: string) => {
-    const remaining = orders.filter((o) => o.id !== id);
-    if (remaining.length === 0) {
-      const fresh = createNewOrder();
-      setOrders([fresh]);
-      setActiveId(fresh.id);
-    } else {
-      setOrders(remaining);
-      if (activeOrderId === id) {
-        setActiveId(remaining[0].id);
-      }
-    }
-    showToast('Ordem de serviço removida.');
-  };
-
-  const handlePrint = () => {
-    window.print();
+  const handleResetTest = () => {
+    const emptyChecklist = createEmptyChecklist();
+    const fresh = createNewOrder();
+    fresh.checklist = emptyChecklist;
+    setCurrentOrder(fresh);
+    setReportImageDataUrl(null);
+    showToast('Checklist zerado com sucesso!');
   };
 
   const handleShareWhatsApp = () => {
@@ -140,10 +93,10 @@ export default function App() {
         const rawPhone = currentOrder.customer.phone.replace(/\D/g, '');
         if (rawPhone.length >= 10) {
           const fullPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
-          showToast('Relatório copiado e abrindo WhatsApp do cliente...');
+          showToast('Relatório copiado e abrindo WhatsApp...');
           window.open(`https://api.whatsapp.com/send?phone=${fullPhone}&text=${encodeURIComponent(text)}`, '_blank');
         } else {
-          showToast('Relatório formatado copiado! Cole no WhatsApp do cliente.');
+          showToast('Relatório copiado para colar no WhatsApp!');
         }
       },
       () => {
@@ -161,25 +114,35 @@ export default function App() {
     setIsTesterOpen(true);
   };
 
+  // Generate image and open preview modal first ("MAS ANTES PEDE PRA VER")
+  const handleGenerateAndPreviewImage = async () => {
+    try {
+      setIsGeneratingImage(true);
+      const dataUrl = await generateTestReportImage(currentOrder.checklist, currentOrder.device);
+      setReportImageDataUrl(dataUrl);
+      setIsImagePreviewOpen(true);
+    } catch (err) {
+      console.error('Erro ao gerar imagem de teste', err);
+      showToast('Erro ao gerar imagem do laudo.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const stats = calculateReportStats(currentOrder.checklist);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-white">
-      {/* PRINTABLE COMPONENT (Hidden on screen, visible only when printing) */}
-      <PrintableServiceOrder order={currentOrder} />
-
       {/* TOP BAR */}
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onNewOrder={handleNewOrder}
-        onOpenHistory={() => setIsHistoryOpen(true)}
-        onPrint={handlePrint}
+        onResetTest={handleResetTest}
+        onGenerateImage={handleGenerateAndPreviewImage}
         onShareWhatsApp={handleShareWhatsApp}
-        onOpenTester={() => handleOpenTester()}
       />
 
       {/* TOAST NOTIFICATION */}
       {notification && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-xl transition-all animate-bounce">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-xl transition-all">
           <CheckCircle className="w-4 h-4" />
           <span>{notification}</span>
         </div>
@@ -187,206 +150,73 @@ export default function App() {
 
       {/* MAIN VIEWPORT CONTAINER */}
       <main className="no-print flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* TOP STATUS TICKER & CONTEXT */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 border border-slate-800/80 px-4 py-3 rounded-xl">
-          <div className="flex items-center gap-2.5">
-            <span className="font-mono text-sm font-bold text-emerald-400">
-              {currentOrder.orderNumber}
-            </span>
-            <span className="text-slate-600">·</span>
-            <span className="text-xs text-slate-300 font-medium truncate max-w-xs">
-              {currentOrder.device.brand} {currentOrder.device.model || 'Aparelho em Teste'}
-            </span>
-            {currentOrder.customer.name && (
-              <>
-                <span className="text-slate-600">·</span>
-                <span className="text-xs text-slate-400 truncate max-w-xs">
-                  {currentOrder.customer.name}
-                </span>
-              </>
-            )}
+        {/* CHECKLIST DE TESTES DO APARELHO */}
+        <ChecklistSection
+          checklist={currentOrder.checklist}
+          checklistType={currentOrder.checklistType}
+          onChangeChecklistType={(type) =>
+            setCurrentOrder({ ...currentOrder, checklistType: type })
+          }
+          onUpdateItem={handleUpdateChecklistItem}
+          onBulkUpdate={handleBulkChecklistUpdate}
+          onOpenTester={handleOpenTester}
+        />
+
+        {/* BOTTOM CALL TO ACTION: GERAR IMAGEM DO TESTE */}
+        <div className="p-6 rounded-2xl border-2 border-emerald-500/40 bg-emerald-950/20 text-center shadow-xl space-y-4">
+          <div className="max-w-xl mx-auto">
+            <h3 className="text-base font-bold text-slate-100 flex items-center justify-center gap-2">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+              Finalizar Testes e Gerar Comprovante
+            </h3>
+            <p className="text-xs text-slate-300 mt-1">
+              Gera uma imagem oficial em alta resolução com o laudo de todos os itens testados para salvar na galeria do aparelho celular ou enviar ao cliente.
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 my-3 text-[11px] font-mono">
+              <span className="px-2.5 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                ✓ Aprovados: {stats.approved}
+              </span>
+              <span className="px-2.5 py-1 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                ⚠ C/ Detalhes: {stats.details}
+              </span>
+              <span className="px-2.5 py-1 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                ✕ Reprovados: {stats.failed}
+              </span>
+            </div>
           </div>
 
-          {/* Quick tab switcher for mobile/desktop */}
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <button
-              onClick={() => setActiveTab('checklist')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                activeTab === 'checklist'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              type="button"
+              onClick={handleGenerateAndPreviewImage}
+              disabled={isGeneratingImage}
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-sm shadow-xl shadow-emerald-950/60 transition-all cursor-pointer disabled:opacity-50"
             >
-              Setor Checklist
+              <ImageIcon className="w-5 h-5" />
+              <span>{isGeneratingImage ? 'Gerando Imagem...' : 'Gerar Imagem do Laudo (Ver Antes de Salvar)'}</span>
             </button>
+
             <button
-              onClick={() => setActiveTab('order_info')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                activeTab === 'order_info'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              type="button"
+              onClick={handleShareWhatsApp}
+              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-semibold text-xs border border-slate-700 transition-all"
             >
-              Dados da OS & Aparelho
-            </button>
-            <button
-              onClick={() => setActiveTab('summary')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                activeTab === 'summary'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Resumo & WhatsApp
+              <Share2 className="w-4 h-4 text-emerald-400" />
+              <span>Copiar Texto WhatsApp</span>
             </button>
           </div>
         </div>
-
-        {/* TAB 1: CHECKLIST SECTOR (Primary focus requested by user) */}
-        {activeTab === 'checklist' && (
-          <div className="space-y-6">
-            <ChecklistSection
-              checklist={currentOrder.checklist}
-              checklistType={currentOrder.checklistType}
-              onChangeChecklistType={(type) =>
-                handleUpdateCurrentOrder({ ...currentOrder, checklistType: type })
-              }
-              onUpdateItem={handleUpdateChecklistItem}
-              onBulkUpdate={handleBulkChecklistUpdate}
-              onOpenTester={handleOpenTester}
-            />
-          </div>
-        )}
-
-        {/* TAB 2: ORDER & DEVICE DETAILS */}
-        {activeTab === 'order_info' && (
-          <div className="space-y-6">
-            <OrderInfoForm
-              order={currentOrder}
-              onChangeOrder={handleUpdateCurrentOrder}
-              onOpenPatternModal={() => setIsPatternOpen(true)}
-            />
-          </div>
-        )}
-
-        {/* TAB 3: SUMMARY & QUICK SHARING */}
-        {activeTab === 'summary' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left 2 Cols: Full Review */}
-            <div className="lg:col-span-2 space-y-6">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-6 shadow-sm">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-100">
-                      Visualização do Laudo e Diagnóstico
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      Revise todos os apontamentos antes de imprimir ou enviar ao cliente
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handlePrint}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-blue-400" />
-                      Imprimir Folha A4
-                    </button>
-                    <button
-                      onClick={handleShareWhatsApp}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      Copiar WhatsApp
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-5 text-xs">
-                  <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Cliente</span>
-                    <p className="font-medium text-slate-200">{currentOrder.customer.name || 'Nome não preenchido'}</p>
-                    <p className="text-slate-400">{currentOrder.customer.phone || 'Telefone não preenchido'}</p>
-                    <p className="text-slate-400">CPF: {currentOrder.customer.document || 'Não inf.'}</p>
-                  </div>
-
-                  <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase">Aparelho em Reparo</span>
-                    <p className="font-medium text-slate-200">
-                      {currentOrder.device.brand} {currentOrder.device.model || 'Modelo não inf.'}
-                    </p>
-                    <p className="text-slate-400">Cor: {currentOrder.device.color || 'Não inf.'}</p>
-                    <p className="text-slate-400 font-mono">IMEI: {currentOrder.device.imei || 'Não inf.'}</p>
-                  </div>
-                </div>
-
-                {/* Preformatted text preview */}
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                    <span>Mensagem Gerada para WhatsApp:</span>
-                    <button
-                      onClick={handleShareWhatsApp}
-                      className="text-emerald-400 hover:text-emerald-300 font-medium"
-                    >
-                      Copiar Texto
-                    </button>
-                  </div>
-                  <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed">
-                    {buildWhatsAppMessage(currentOrder)}
-                  </pre>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Col: Quick Actions & Details */}
-            <div className="space-y-6">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5 shadow-sm space-y-4">
-                <h4 className="text-sm font-semibold text-slate-200">Ações Rápidas de Bancada</h4>
-
-                <button
-                  onClick={() => handleOpenTester()}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-100">Bancada de Testes</span>
-                      <p className="text-[11px] text-slate-400">Touch, microfone, som e câmera</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-slate-400">Abrir →</span>
-                </button>
-
-                <button
-                  onClick={() => setIsHistoryOpen(true)}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <FolderOpen className="w-4 h-4 text-blue-400" />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-100">Histórico de OS</span>
-                      <p className="text-[11px] text-slate-400">{orders.length} ordens salvas</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-slate-400">Ver →</span>
-                </button>
-
-                <div className="p-3.5 rounded-lg bg-emerald-950/30 border border-emerald-800/60">
-                  <span className="text-[10px] text-emerald-400 uppercase font-semibold">Total Orçamento</span>
-                  <div className="text-xl font-bold font-mono text-emerald-300 mt-0.5">
-                    R$ {Number(currentOrder.budget.totalCost || 0).toFixed(2)}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Garantia: {currentOrder.budget.warrantyDays || 90} dias
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
-      {/* HARDWARE DIAGNOSTICS MODAL */}
+      {/* PREVIEW MODAL BEFORE SAVING IMAGE TO GALLERY */}
+      <TestImagePreviewModal
+        isOpen={isImagePreviewOpen}
+        onClose={() => setIsImagePreviewOpen(false)}
+        imageDataUrl={reportImageDataUrl}
+      />
+
+      {/* HARDWARE DIAGNOSTICS MODAL (Touch, Flash, Câmera, Som, Auricular, Volume, etc.) */}
       <HardwareTesterModal
         isOpen={isTesterOpen}
         onClose={() => setIsTesterOpen(false)}
@@ -412,38 +242,6 @@ export default function App() {
           });
           showToast(`Teste de toque finalizado: ${result.status === 'sim' ? 'Aprovado 100%' : 'Com ressalvas'}`);
         }}
-      />
-
-      {/* PATTERN UNLOCK MODAL */}
-      <PatternUnlockModal
-        isOpen={isPatternOpen}
-        onClose={() => setIsPatternOpen(false)}
-        initialPattern={currentOrder.device.patternNodes}
-        onSavePattern={(nodes) => {
-          handleUpdateCurrentOrder({
-            ...currentOrder,
-            device: {
-              ...currentOrder.device,
-              lockType: 'pattern',
-              patternNodes: nodes,
-            },
-          });
-          showToast('Padrão salvo com sucesso!');
-        }}
-      />
-
-      {/* SAVED ORDERS HISTORY DRAWER */}
-      <HistoryDrawer
-        isOpen={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
-        orders={orders}
-        activeOrderId={activeOrderId}
-        onSelectOrder={(id) => {
-          setActiveId(id);
-          showToast('Ordem de serviço carregada.');
-        }}
-        onNewOrder={handleNewOrder}
-        onDeleteOrder={handleDeleteOrder}
       />
     </div>
   );

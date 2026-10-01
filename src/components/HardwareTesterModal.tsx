@@ -1160,50 +1160,70 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             className="hidden pointer-events-none opacity-0 absolute -z-50"
           />
 
-          {/* TAB: FLASH LED DO CELULAR (Nada simulado) */}
+          {/* TAB: FLASH LED DO CELULAR (Direcionado para a Lanterna do Aparelho) */}
           {currentTab === 'display' && (
             <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
               <div>
-                <h3 className="text-base font-bold text-slate-100">Teste do Flash LED Físico Traseiro</h3>
+                <h3 className="text-base font-bold text-slate-100">Teste do Flash LED / Lanterna</h3>
                 <p className="text-xs text-slate-400 mb-6">
-                  Acione diretamente o LED físico da câmera traseira do smartphone via API de hardware.
+                  Teste o LED físico traseiro utilizando o acionamento direto ou o atalho de Lanterna nativo do smartphone.
                 </p>
 
-                {/* Primary Physical Torch Switch */}
-                <div className="p-8 rounded-2xl border-2 border-slate-700 bg-slate-900/90 text-center shadow-xl">
+                {/* Primary Physical Torch Card */}
+                <div className="p-6 sm:p-8 rounded-2xl border-2 border-slate-700 bg-slate-900/90 text-center shadow-xl space-y-4">
                   <div
-                    className={`w-24 h-24 mx-auto mb-5 rounded-full flex items-center justify-center transition-all ${
+                    className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center transition-all ${
                       isTorchOn
                         ? 'bg-amber-400 text-slate-950 shadow-2xl shadow-amber-400/80 ring-8 ring-amber-400/30'
-                        : 'bg-slate-800 border-2 border-slate-700 text-slate-500'
+                        : 'bg-slate-800 border-2 border-slate-700 text-amber-400'
                     }`}
                   >
-                    <Zap className="w-12 h-12 fill-current" />
+                    <Zap className="w-10 h-10 fill-current" />
                   </div>
 
-                  <span className="text-sm font-bold uppercase tracking-wider block mb-2 text-slate-100">
-                    {isTorchOn ? 'Flash LED Físico Ligado' : 'Flash LED Físico Desligado'}
-                  </span>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
-                    {isTorchOn
-                      ? 'O LED físico da câmera traseira está emitindo luz contínua neste momento.'
-                      : 'Clique no botão abaixo para ligar a lanterna traseira do aparelho celular.'}
-                  </p>
+                  <div>
+                    <span className="text-sm font-bold uppercase tracking-wider block text-slate-100">
+                      Lanterna / Flash Traseiro
+                    </span>
+                    <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
+                      Deslize o topo da tela do celular para baixo (Barra de Notificações / Painel de Atalhos Rápidos) e toque no ícone <strong className="text-amber-400">"Lanterna"</strong> para conferir se o LED traseiro acende com força total.
+                    </p>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={toggleRealPhoneFlash}
-                    className={`px-8 py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 shadow-lg ${
-                      isTorchOn
-                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/50'
-                    }`}
-                  >
-                    {isTorchOn ? 'DESLIGAR FLASH DO CELULAR' : 'LIGAR FLASH DO CELULAR'}
-                  </button>
+                  {/* Direct Command Buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Open quick settings or settings intent
+                        try {
+                          window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
+                        } catch {
+                          // fallback
+                        }
+                      }}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-950/50 transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Abrir Atalhos / Configurações</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleRealPhoneFlash}
+                      className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-lg ${
+                        isTorchOn
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                          : 'bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span>{isTorchOn ? 'Desligar LED' : 'Acionar LED Direto'}</span>
+                    </button>
+                  </div>
 
                   {torchError && (
-                    <div className="mt-4 p-3 rounded-lg bg-rose-950/40 border border-rose-800/40 text-xs text-rose-300">
+                    <div className="mt-3 p-2.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-300">
                       {torchError}
                     </div>
                   )}
@@ -1216,7 +1236,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   </span>
                   <div
                     onClick={() => setDisplayColorIndex((prev) => (prev + 1) % displayColors.length)}
-                    className={`w-full h-24 rounded-lg border flex flex-col items-center justify-center p-3 cursor-pointer transition-all ${displayColors[displayColorIndex].bg}`}
+                    className={`w-full h-20 rounded-lg border flex flex-col items-center justify-center p-3 cursor-pointer transition-all ${displayColors[displayColorIndex].bg}`}
                   >
                     <span className={`text-xs font-bold uppercase ${displayColors[displayColorIndex].text}`}>
                       {displayColors[displayColorIndex].name}
