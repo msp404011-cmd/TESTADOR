@@ -1,0 +1,6 @@
+{
+  "name": "TechCheck OS - Checklist de Teste de Celular",
+  "description": "Sistema de Ordem de Serviço com checklist completo e interativo de testes de bancada para celulares e smartphones.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
