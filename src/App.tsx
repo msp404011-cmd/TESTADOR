@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ServiceOrder,
   ChecklistItemKey,
@@ -65,11 +65,14 @@ export default function App() {
     saveOrdersToStorage(orders);
   }, [orders]);
 
+  const toastTimerRef = useRef<number | null>(null);
+
   const showToast = (message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setNotification(message);
-    setTimeout(() => {
+    toastTimerRef.current = window.setTimeout(() => {
       setNotification(null);
-    }, 3500);
+    }, 2500);
   };
 
   const currentOrder = orders.find((o) => o.id === activeOrderId) || orders[0] || createNewOrder();

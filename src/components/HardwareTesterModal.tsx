@@ -32,6 +32,8 @@ import {
   ExternalLink,
   ShieldCheck,
   PhoneCall,
+  Radio,
+  FlipHorizontal,
 } from 'lucide-react';
 import { ChecklistItemKey } from '../types/order';
 
@@ -50,6 +52,7 @@ type TabType =
   | 'biometrics'
   | 'sd_card'
   | 'sim_manager'
+  | 'signal_area'
   | 'mic'
   | 'speaker'
   | 'camera'
@@ -68,7 +71,11 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   // Flashlight / Physical Torch state
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [torchError, setTorchError] = useState<string | null>(null);
-  const torchTrackRef = useRef<MediaStreamTrack | null>(null);
+  const torchTrackRef = useRef<MediaStream | null>(null);
+  const torchVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Status Bar Notice for Signal Tab
+  const [showStatusNotice, setShowStatusNotice] = useState(false);
 
   // Volume state
   const [volumeLevel, setVolumeLevel] = useState(100);
@@ -76,6 +83,8 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   const [volDownCount, setVolDownCount] = useState(0);
   const [lastKeyPressed, setLastKeyPressed] = useState<string | null>(null);
   const [volumeLog, setVolumeLog] = useState<Array<{ id: number; text: string; time: string; level: number }>>([]);
+  const volumeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeOscillatorsRef = useRef<Array<{ osc: OscillatorNode; gain: GainNode }>>([]);
 
   // Real Signal Strength in dBm & Telemetry
   const [measuringSignal, setMeasuringSignal] = useState(false);
@@ -131,8 +140,10 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const animFrameRef = useRef<number | null>(null);
 
-  // Camera state with Maximum 4K / Full HD Resolution
-  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  // Camera state with selectable resolution and mirror toggle
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('environment');
+  const [cameraQuality, setCameraQuality] = useState<'max' | '4k' | 'fhd' | 'hd' | 'sd'>('max');
+  const [isCameraMirrored, setIsCameraMirrored] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraResolution, setCameraResolution] = useState<{ width: number; height: number } | null>(null);
@@ -143,7 +154,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   // Speaker Tone state
   const [isPlayingTone, setIsPlayingTone] = useState(false);
   const [activeToneType, setActiveToneType] = useState<string | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
+  const earAudioSourceRef = useRef<{ osc: OscillatorNode; gain: GainNode } | null>(null);
 
   // Display color test
   const [displayColorIndex, setDisplayColorIndex] = useState(0);
@@ -167,13 +178,9 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     else if (activeTestKey === 'wifi') setCurrentTab('wifi');
     else if (activeTestKey === 'biometrics') setCurrentTab('biometrics');
     else if (activeTestKey === 'sd_card') setCurrentTab('sd_card');
-    else if (
-      activeTestKey === 'chip_1' ||
-      activeTestKey === 'chip_2' ||
-      activeTestKey === 'signal_area' ||
-      activeTestKey === 'chip_tray'
-    )
+    else if (activeTestKey === 'chip_1' || activeTestKey === 'chip_2' || activeTestKey === 'chip_tray')
       setCurrentTab('sim_manager');
+    else if (activeTestKey === 'signal_area') setCurrentTab('signal_area');
     else if (activeTestKey === 'microphone') setCurrentTab('mic');
     else if (activeTestKey === 'audio') setCurrentTab('speaker');
     else if (activeTestKey === 'front_camera') {
@@ -234,150 +241,248 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     }
   }, [isOpen, currentTab]);
 
-  // Physical Volume Keys listener
+  // Unified Volume Press Handler
+  const handleVolumePress = (direction: 'up' | 'down') => {
+    if (direction === 'up') {
+      const nextLevel = Math.min(100, volumeLevel + 5);
+      setVolumeLevel(nextLevel);
+      setVolUpCount((c) => {
+        const next = c + 1;
+        onUpdateChecklist(
+          'volume_up',
+          'sim',
+          `Botão Volume (+) testado e respondendo (${next}x acionado)`
+        );
+        return next;
+      });
+      playMaxTone(500 + nextLevel * 6, 0.1, 'sine');
+      setLastKeyPressed(`Botão Volume (+) Pressionado (${nextLevel}%)`);
+      logVolumeAction('Volume (+) Aumentar', nextLevel);
+    } else {
+      const nextLevel = Math.max(0, volumeLevel - 5);
+      setVolumeLevel(nextLevel);
+      setVolDownCount((c) => {
+        const next = c + 1;
+        onUpdateChecklist(
+          'volume_down',
+          'sim',
+          `Botão Volume (-) testado e respondendo (${next}x acionado)`
+        );
+        return next;
+      });
+      playMaxTone(250 + nextLevel * 6, 0.1, 'sine');
+      setLastKeyPressed(`Botão Volume (-) Pressionado (${nextLevel}%)`);
+      logVolumeAction('Volume (-) Diminuir', nextLevel);
+    }
+  };
+
+  // Physical & Hardware Volume Keys and Mobile Volume Change listener
   useEffect(() => {
     if (!isOpen || currentTab !== 'volume') return;
 
+    // Monitor volume change on mobile audio element
+    const audio = volumeAudioRef.current;
+    let lastVol = audio ? audio.volume : 0.5;
+
+    const handleVolumeChange = () => {
+      if (!audio) return;
+      const current = audio.volume;
+      if (current > lastVol) {
+        handleVolumePress('up');
+      } else if (current < lastVol) {
+        handleVolumePress('down');
+      }
+      lastVol = current;
+    };
+
+    if (audio) {
+      audio.addEventListener('volumechange', handleVolumeChange);
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'AudioVolumeUp' || e.key === 'VolumeUp' || e.key === 'ArrowUp') {
+      const upKeys = ['AudioVolumeUp', 'VolumeUp', 'ArrowUp', '+', '=', 'PageUp', 'KeyW'];
+      const downKeys = ['AudioVolumeDown', 'VolumeDown', 'ArrowDown', '-', '_', 'PageDown', 'KeyS'];
+
+      if (upKeys.includes(e.key) || upKeys.includes(e.code)) {
         e.preventDefault();
-        changeVolume(5);
-        setVolUpCount((c) => {
-          const next = c + 1;
-          onUpdateChecklist(
-            'volume_up',
-            'sim',
-            `Botão físico Volume (+) pressionado e respondendo (${next}x testado)`
-          );
-          return next;
-        });
-        setLastKeyPressed('Botão Volume (+) Físico Pressionado');
-      } else if (e.key === 'AudioVolumeDown' || e.key === 'VolumeDown' || e.key === 'ArrowDown') {
+        handleVolumePress('up');
+      } else if (downKeys.includes(e.key) || downKeys.includes(e.code)) {
         e.preventDefault();
-        changeVolume(-5);
-        setVolDownCount((c) => {
-          const next = c + 1;
-          onUpdateChecklist(
-            'volume_down',
-            'sim',
-            `Botão físico Volume (-) pressionado e respondendo (${next}x testado)`
-          );
-          return next;
-        });
-        setLastKeyPressed('Botão Volume (-) Físico Pressionado');
+        handleVolumePress('down');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, currentTab, onUpdateChecklist]);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (audio) audio.removeEventListener('volumechange', handleVolumeChange);
+    };
+  }, [isOpen, currentTab, volumeLevel, volUpCount, volDownCount]);
 
-  // Call timer simulation
-  useEffect(() => {
-    let timer: number;
-    if (callActive) {
-      timer = window.setInterval(() => {
-        setCallDuration((d) => d + 1);
-      }, 1000);
+  // Synchronous AudioContext instance management (preserves mobile user gesture)
+  const getAudioContext = (): AudioContext => {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new AudioCtx();
     }
-    return () => clearInterval(timer);
-  }, [callActive]);
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
+    }
+    return audioContextRef.current;
+  };
 
-  // Web Audio Tone generator with MAXIMUM VOLUME (gain: 1.0)
+  // Web Audio Tone generator at 100% MAXIMUM VOLUME (gain: 1.0)
   const playMaxTone = (freq: number = 800, duration: number = 0.2, type: OscillatorType = 'sine') => {
     try {
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const ctx = getAudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
 
       osc.type = type;
-      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
-      // MAXIMUM VOLUME WITHOUT DISTORTION
-      gain.gain.setValueAtTime(1.0, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+      gain.gain.setValueAtTime(1.0, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
 
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
 
       osc.start();
-      osc.stop(audioCtx.currentTime + duration);
+      osc.stop(ctx.currentTime + duration);
     } catch {
       // Audio error
     }
   };
 
-  // Play Ear Speaker (Auricular) Test Sound
-  const playEarSpeakerTest = () => {
-    stopTone();
-    try {
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-
-      // Bandpass telephony voice filter simulating in-call ear piece sound (3000 Hz)
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(3000, audioCtx.currentTime);
-
-      // Pulse pattern simulating telephone dial tone / voice band
-      gain.gain.setValueAtTime(0.9, audioCtx.currentTime);
-
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      osc.start();
-      oscillatorRef.current = osc;
-      setIsPlayingTone(true);
-      setActiveToneType('auricular');
-
-      setTimeout(() => {
-        stopTone();
-      }, 3500);
-    } catch {
-      // Audio error
-    }
-  };
-
-  // Play Main Loudspeaker (Campainha) at Maximum Volume
-  const playMainSpeakerTest = () => {
-    stopTone();
-    try {
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-
-      // Musical chord progression at full volume
-      const notes = [523.25, 659.25, 783.99, 1046.5];
-      notes.forEach((freq, idx) => {
-        setTimeout(() => {
-          playMaxTone(freq, 0.4, 'sine');
-        }, idx * 250);
+  // Stop all active audio tones cleanly without errors
+  const stopAllAudio = () => {
+    if (activeOscillatorsRef.current.length > 0) {
+      activeOscillatorsRef.current.forEach(({ osc, gain }) => {
+        try {
+          osc.stop();
+          osc.disconnect();
+          gain.disconnect();
+        } catch {
+          // ignore
+        }
       });
-
-      setIsPlayingTone(true);
-      setActiveToneType('loudspeaker');
-      setTimeout(() => {
-        setIsPlayingTone(false);
-        setActiveToneType(null);
-      }, 1500);
-    } catch {
-      // Audio error
+      activeOscillatorsRef.current = [];
     }
-  };
-
-  const stopTone = () => {
-    if (oscillatorRef.current) {
+    if (earAudioSourceRef.current) {
       try {
-        oscillatorRef.current.stop();
+        earAudioSourceRef.current.osc.stop();
+        earAudioSourceRef.current.osc.disconnect();
+        earAudioSourceRef.current.gain.disconnect();
       } catch {
-        // already stopped
+        // ignore
       }
-      oscillatorRef.current = null;
+      earAudioSourceRef.current = null;
     }
     setIsPlayingTone(false);
     setActiveToneType(null);
   };
 
+  // Play Ear Speaker (Auricular / Ouvido) Test Sound
+  // Uses standard telephony call tone (440Hz + 480Hz voice band) for ear speaker inspection
+  const playEarSpeakerTest = async () => {
+    if (activeToneType === 'auricular') {
+      stopAllAudio();
+      return;
+    }
+    stopAllAudio();
+    try {
+      const ctx = getAudioContext();
+      setIsPlayingTone(true);
+      setActiveToneType('auricular');
+
+      // Attempt routing to earpiece if setSinkId is supported by browser
+      if ('setSinkId' in AudioContext.prototype && (ctx as any).setSinkId) {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const earpiece = devices.find(
+            (d) => d.kind === 'audiooutput' && /earpiece|receiver|auricular|phone|ear/i.test(d.label)
+          );
+          if (earpiece) {
+            await (ctx as any).setSinkId(earpiece.deviceId);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(440, now);
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(480, now);
+
+      gain.gain.setValueAtTime(1.0, now);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now);
+
+      earAudioSourceRef.current = { osc: osc1, gain };
+      activeOscillatorsRef.current.push({ osc: osc1, gain }, { osc: osc2, gain });
+    } catch (err) {
+      console.error('Ear speaker test failed', err);
+      setIsPlayingTone(false);
+      setActiveToneType(null);
+    }
+  };
+
+  // Play Main Loudspeaker (Campainha) at Maximum Volume
+  // Can be clicked repeatedly without limit
+  const playMainSpeakerTest = () => {
+    stopAllAudio();
+    try {
+      const ctx = getAudioContext();
+      setIsPlayingTone(true);
+      setActiveToneType('loudspeaker');
+
+      const now = ctx.currentTime;
+      // High-energy clear test melody at 100% maximum volume (1.0 gain)
+      const freqs = [523.25, 659.25, 783.99, 1046.5];
+      freqs.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.22);
+        gain.gain.setValueAtTime(1.0, now + idx * 0.22);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + (idx + 1) * 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.22);
+        osc.stop(now + (idx + 1) * 0.22);
+        activeOscillatorsRef.current.push({ osc, gain });
+      });
+
+      setTimeout(() => {
+        setIsPlayingTone(false);
+        setActiveToneType((prev) => (prev === 'loudspeaker' ? null : prev));
+      }, freqs.length * 220 + 80);
+    } catch (err) {
+      console.error('Main speaker error', err);
+      setIsPlayingTone(false);
+      setActiveToneType(null);
+    }
+  };
+
+  const stopTone = () => {
+    stopAllAudio();
+  };
+
   // Play DTMF tones for phone dialer
-  const playDtmf = (key: string) => {
+  const playDtmf = async (key: string) => {
     const dtmfFreqs: Record<string, [number, number]> = {
       '1': [697, 1209],
       '2': [697, 1336],
@@ -397,37 +502,28 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     if (!freqs) return;
 
     try {
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const osc1 = audioCtx.createOscillator();
-      const osc2 = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const ctx = await getAudioContext();
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-      osc1.frequency.setValueAtTime(freqs[0], audioCtx.currentTime);
-      osc2.frequency.setValueAtTime(freqs[1], audioCtx.currentTime);
+      osc1.frequency.setValueAtTime(freqs[0], ctx.currentTime);
+      osc2.frequency.setValueAtTime(freqs[1], ctx.currentTime);
 
-      gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.9, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(ctx.destination);
 
       osc1.start();
       osc2.start();
-      osc1.stop(audioCtx.currentTime + 0.15);
-      osc2.stop(audioCtx.currentTime + 0.15);
+      osc1.stop(ctx.currentTime + 0.15);
+      osc2.stop(ctx.currentTime + 0.15);
     } catch {
       // Audio error
     }
-  };
-
-  // Change Volume helper
-  const changeVolume = (delta: number) => {
-    setVolumeLevel((prev) => {
-      const next = Math.max(0, Math.min(100, prev + delta));
-      playMaxTone(400 + next * 8, 0.08, 'sine');
-      return next;
-    });
   };
 
   // REAL FLASHLIGHT / TORCH OF THE PHONE (Nada simulado)
@@ -438,6 +534,9 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
       return;
     }
 
+    // Stop active camera so rear camera hardware is released
+    stopCamera();
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -446,37 +545,76 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
       });
 
       const track = stream.getVideoTracks()[0];
-      if (track) {
-        try {
-          await (track as any).applyConstraints({
-            advanced: [{ torch: true }],
-          });
-        } catch {
-          // torch constraint not supported on this track
-        }
-        torchTrackRef.current = track;
-        setIsTorchOn(true);
-        onUpdateChecklist('flash', 'sim', 'Flash LED traseiro acionado e operando com brilho total');
+      if (!track) {
+        throw new Error('Nenhuma câmera traseira encontrada no aparelho.');
       }
-    } catch (err) {
+
+      // Attach stream to hidden video element so Android keeps camera daemon active!
+      if (torchVideoRef.current) {
+        torchVideoRef.current.srcObject = stream;
+        try {
+          await torchVideoRef.current.play();
+        } catch {
+          // ignore
+        }
+      }
+
+      // Allow camera hardware daemon to initialize frames before applying torch constraint
+      await new Promise((r) => setTimeout(r, 200));
+
+      try {
+        await (track as any).applyConstraints({
+          advanced: [{ torch: true }],
+        });
+        torchTrackRef.current = stream;
+        setIsTorchOn(true);
+        onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+      } catch (applyErr) {
+        console.warn('Torch constraint error', applyErr);
+        if ('ImageCapture' in window) {
+          try {
+            const ic = new (window as any).ImageCapture(track);
+            await (track as any).applyConstraints({
+              advanced: [{ torch: true, fillLightMode: 'torch' } as any],
+            });
+            torchTrackRef.current = stream;
+            setIsTorchOn(true);
+            onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+            return;
+          } catch {
+            // failed
+          }
+        }
+
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          throw new Error('No iOS Safari, a Apple restringe o acionamento direto do flash LED por navegadores. Utilize o app nativo de câmera ou a Tela Branca Máxima.');
+        }
+        throw new Error('O dispositivo não permitiu acionar o LED do flash diretamente ou o sensor não possui flash contínuo.');
+      }
+    } catch (err: any) {
       console.error('Torch error', err);
-      setTorchError(
-        'Não foi possível acionar o LED traseiro. O aparelho pode não possuir flash físico ou a permissão foi negada.'
-      );
+      setTorchError(err.message || 'Não foi possível ligar o flash do celular.');
     }
   };
 
   const turnOffTorch = () => {
     if (torchTrackRef.current) {
       try {
-        (torchTrackRef.current as MediaStreamTrack & { applyConstraints: (c: unknown) => Promise<void> }).applyConstraints({
-          advanced: [{ torch: false }],
-        });
+        const track = (torchTrackRef.current as MediaStream).getVideoTracks()[0];
+        if (track) {
+          (track as any).applyConstraints({
+            advanced: [{ torch: false }],
+          }).catch(() => {});
+        }
       } catch {
         // ignore
       }
-      torchTrackRef.current.stop();
+      (torchTrackRef.current as MediaStream).getTracks().forEach((t) => t.stop());
       torchTrackRef.current = null;
+    }
+    if (torchVideoRef.current) {
+      torchVideoRef.current.srcObject = null;
     }
     setIsTorchOn(false);
   };
@@ -532,31 +670,41 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     }
   };
 
-  // Real Camera with MAXIMUM 4K / Full HD Resolution
-  const startCamera = async (facing: 'user' | 'environment') => {
+  const QUALITY_CONSTRAINTS: Record<string, { width: { ideal: number }; height: { ideal: number } }> = {
+    '4k': { width: { ideal: 3840 }, height: { ideal: 2160 } },
+    'fhd': { width: { ideal: 1920 }, height: { ideal: 1080 } },
+    'hd': { width: { ideal: 1280 }, height: { ideal: 720 } },
+    'sd': { width: { ideal: 640 }, height: { ideal: 480 } },
+    'max': { width: { ideal: 4096 }, height: { ideal: 3072 } },
+  };
+
+  // Real Camera with Configurable Quality (4K, Full HD, HD, SD, Max)
+  const startCamera = async (
+    facing: 'user' | 'environment',
+    quality: 'max' | '4k' | 'fhd' | 'hd' | 'sd' = cameraQuality
+  ) => {
     stopCamera();
     setCameraError(null);
     setCameraResolution(null);
+    setCameraQuality(quality);
 
     try {
+      const q = QUALITY_CONSTRAINTS[quality] || QUALITY_CONSTRAINTS.max;
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: facing,
-            width: { ideal: 3840, min: 1280 },
-            height: { ideal: 2160, min: 720 },
-            frameRate: { ideal: 60, min: 30 },
+            facingMode: { ideal: facing },
+            width: q.width,
+            height: q.height,
+            frameRate: { ideal: 60, min: 24 },
           },
           audio: false,
         });
       } catch {
-        // Fallback to highest available without strict min
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: facing,
-            width: { ideal: 3840 },
-            height: { ideal: 2160 },
+            facingMode: { ideal: facing },
           },
           audio: false,
         });
@@ -599,7 +747,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     canvas.height = video.videoHeight || 1080;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      if (cameraFacing === 'user') {
+      if (isCameraMirrored) {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
       }
@@ -887,7 +1035,17 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             }`}
           >
             <Cpu className="w-3.5 h-3.5" />
-            Chips & Sinal Real
+            Gerenciador de Chips
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('signal_area')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+              currentTab === 'signal_area' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            Sinal da Operadora
           </button>
 
           <button
@@ -913,6 +1071,21 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
         {/* Tab Content Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/40">
+          {/* Hidden hardware integration elements */}
+          <video
+            ref={torchVideoRef}
+            playsInline
+            muted
+            autoPlay
+            className="hidden pointer-events-none opacity-0 absolute -z-50"
+          />
+          <audio
+            ref={volumeAudioRef}
+            loop
+            preload="auto"
+            className="hidden pointer-events-none opacity-0 absolute -z-50"
+          />
+
           {/* TAB: FLASH LED DO CELULAR (Nada simulado) */}
           {currentTab === 'display' && (
             <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
@@ -1010,14 +1183,14 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             </div>
           )}
 
-          {/* TAB: CÂMERA EM MÁXIMA RESOLUÇÃO (Área Maior) */}
+          {/* TAB: CÂMERA EM MÁXIMA RESOLUÇÃO (Área Maior com Seletor de Resolução e Espelhamento) */}
           {currentTab === 'camera' && (
             <div className="flex flex-col h-full justify-between items-center max-w-4xl mx-auto py-1">
               <div className="w-full">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-100">Câmera em Qualidade Máxima</span>
+                      <span className="text-sm font-bold text-slate-100">Câmera em Qualidade Nativa</span>
                       {cameraResolution && (
                         <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
                           {cameraResolution.width} x {cameraResolution.height}
@@ -1026,7 +1199,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       )}
                     </div>
                     <p className="text-xs text-slate-400">
-                      Fluxo de vídeo sem compressão em alta taxa de quadros para inspeção de foco e sensor
+                      Fluxo de vídeo sem compressão. Ajuste a resolução para a permitida pelo sensor do seu aparelho.
                     </p>
                   </div>
 
@@ -1044,6 +1217,49 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   </div>
                 </div>
 
+                {/* Camera Quality Bar & Mirror Toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 p-2.5 rounded-xl border border-slate-800 bg-slate-900/90">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-slate-400 font-bold mr-1">Qualidade da Câmera:</span>
+                    {(
+                      [
+                        { id: 'max', label: 'Máxima / Auto' },
+                        { id: '4k', label: '4K (2160p)' },
+                        { id: 'fhd', label: 'Full HD (1080p)' },
+                        { id: 'hd', label: 'HD (720p)' },
+                        { id: 'sd', label: 'SD (480p)' },
+                      ] as const
+                    ).map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => startCamera(cameraFacing, q.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                          cameraQuality === q.id
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-750 hover:text-white border border-slate-700'
+                        }`}
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCameraMirrored((prev) => !prev)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                      isCameraMirrored
+                        ? 'bg-blue-600 border-blue-400 text-white shadow-xs'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-750 hover:text-white'
+                    }`}
+                    title="Inverte ou desespelha a imagem da câmera horizontalmente"
+                  >
+                    <FlipHorizontal className="w-3.5 h-3.5" />
+                    <span>{isCameraMirrored ? 'Espelhado (Ativo)' : 'Inverter / Espelhar'}</span>
+                  </button>
+                </div>
+
                 {cameraError ? (
                   <div className="p-8 rounded-xl border border-rose-800/60 bg-rose-950/20 text-rose-300 text-center text-xs">
                     <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-rose-400" />
@@ -1058,13 +1274,13 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="relative w-full h-[54vh] max-h-[520px] rounded-2xl overflow-hidden border-2 border-slate-700 bg-black flex items-center justify-center shadow-2xl">
+                  <div className="relative w-full h-[50vh] max-h-[480px] rounded-2xl overflow-hidden border-2 border-slate-700 bg-black flex items-center justify-center shadow-2xl">
                     <video
                       ref={videoRef}
                       autoPlay
                       playsInline
                       muted
-                      className={`w-full h-full object-contain ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
+                      className={`w-full h-full object-contain transition-transform ${isCameraMirrored ? 'scale-x-[-1]' : ''}`}
                     />
 
                     {!cameraActive && (
@@ -1304,17 +1520,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   <div className="grid grid-cols-2 gap-4 mt-6">
                     <button
                       type="button"
-                      onClick={() => {
-                        const nextLevel = Math.min(100, volumeLevel + 5);
-                        changeVolume(5);
-                        setVolUpCount((c) => {
-                          const next = c + 1;
-                          onUpdateChecklist('volume_up', 'sim', `Volume (+) respondendo (${next}x acionado)`);
-                          return next;
-                        });
-                        setLastKeyPressed(`Botão Volume (+) Pressionado (${nextLevel}%)`);
-                        logVolumeAction('Botão Volume (+) Acionado', nextLevel);
-                      }}
+                      onClick={() => handleVolumePress('up')}
                       className="flex flex-col items-center justify-center p-4 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-750 active:scale-95 transition-all text-slate-100 shadow-md cursor-pointer"
                     >
                       <span className="text-3xl font-bold text-emerald-400 mb-1">+</span>
@@ -1326,17 +1532,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => {
-                        const nextLevel = Math.max(0, volumeLevel - 5);
-                        changeVolume(-5);
-                        setVolDownCount((c) => {
-                          const next = c + 1;
-                          onUpdateChecklist('volume_down', 'sim', `Volume (-) respondendo (${next}x acionado)`);
-                          return next;
-                        });
-                        setLastKeyPressed(`Botão Volume (-) Pressionado (${nextLevel}%)`);
-                        logVolumeAction('Botão Volume (-) Acionado', nextLevel);
-                      }}
+                      onClick={() => handleVolumePress('down')}
                       className="flex flex-col items-center justify-center p-4 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-750 active:scale-95 transition-all text-slate-100 shadow-md cursor-pointer"
                     >
                       <span className="text-3xl font-bold text-emerald-400 mb-1">-</span>
@@ -1413,87 +1609,45 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             </div>
           )}
 
-          {/* TAB: WI-FI DO APARELHO (Redes e Conexão Real) */}
+          {/* TAB: WI-FI DO APARELHO (Redes Reais) */}
           {currentTab === 'wifi' && (
             <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-base font-bold text-slate-100">Status e Recepção Wi-Fi do Aparelho</h3>
+                    <h3 className="text-base font-bold text-slate-100">Status e Redes Wi-Fi do Aparelho</h3>
                     <p className="text-xs text-slate-400">
                       Identificação da interface de rede sem fio e conectividade do dispositivo.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      setIsWifiScanning(true);
-                      setTimeout(() => {
-                        readRealNetwork();
-                        setIsWifiScanning(false);
-                      }, 1000);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isWifiScanning ? 'animate-spin' : ''}`} />
-                    <span>Atualizar Rede</span>
-                  </button>
-                </div>
-
-                {/* Real Device Adapter Card */}
-                <div className="p-5 rounded-2xl border border-slate-700 bg-slate-900/90 shadow-md space-y-3 mb-4">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                    <div className="flex items-center gap-2.5">
-                      <span className={`w-3 h-3 rounded-full ${networkInfo.online ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                      <span className="text-sm font-bold text-slate-100">
-                        {networkInfo.online ? 'Conexão Wi-Fi Ativa no Aparelho' : 'Aparelho Desconectado da Rede'}
-                      </span>
-                    </div>
-                    <span className="text-xs font-mono text-emerald-400 font-bold">
-                      {networkInfo.effectiveType}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <span className="text-slate-400 block text-[11px]">Tipo de Conexão</span>
-                      <strong className="text-slate-200">{networkInfo.type}</strong>
-                    </div>
-
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                      <span className="text-slate-400 block text-[11px]">Velocidade de Link</span>
-                      <strong className="text-emerald-400 font-mono">{networkInfo.downlink} Mbps</strong>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Real Device Wi-Fi Settings Direct Trigger */}
-                <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-950/20 mb-4 shadow-sm">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
-                        <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                        Redes Wi-Fi Reais do Aparelho
-                      </h4>
-                      <p className="text-[11px] text-slate-300 mt-0.5">
-                        Acesse diretamente o gerenciador nativo de Wi-Fi do celular para visualizar todas as redes reais que o chip de rádio do aparelho está encontrando.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const isAndroid = /Android/i.test(navigator.userAgent);
-                        if (isAndroid) {
-                          window.location.href = 'intent:#Intent;action=android.settings.WIFI_SETTINGS;end';
-                        } else {
-                          window.location.href = 'App-Prefs:root=WIFI';
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 whitespace-nowrap cursor-pointer"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Buscar Redes no Celular
-                    </button>
+                <div className="p-6 rounded-2xl border-2 border-emerald-500/50 bg-emerald-950/20 text-center mb-6 shadow-md">
+                  <div className="p-3 bg-emerald-600/20 text-emerald-400 rounded-full w-14 h-14 mx-auto mb-3 flex items-center justify-center">
+                    <Wifi className="w-7 h-7" />
                   </div>
+                  <h4 className="text-sm font-bold text-slate-100 mb-1.5">
+                    Localizar Redes Wi-Fi Reais do Aparelho
+                  </h4>
+                  <p className="text-xs text-slate-300 max-w-md mx-auto mb-5">
+                    Acesse diretamente o gerenciador nativo de Wi-Fi do celular para visualizar todas as redes reais que a placa de rádio do aparelho está encontrando.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const isAndroid = /Android/i.test(navigator.userAgent);
+                      if (isAndroid) {
+                        window.location.href = 'intent:#Intent;action=android.settings.WIFI_SETTINGS;end';
+                      } else {
+                        window.location.href = 'App-Prefs:root=WIFI';
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/60 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Buscar Redes no Celular
+                  </button>
                 </div>
               </div>
 
@@ -1503,21 +1657,21 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      onUpdateChecklist('wifi', 'sim', `Wi-Fi operante (${networkInfo.downlink} Mbps detectado no dispositivo)`);
+                      onUpdateChecklist('wifi', 'sim', 'Wi-Fi localiza e conecta em redes perfeitamente');
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
                   >
-                    Wi-Fi: SIM (Conecta)
+                    Wi-Fi: SIM (Conecta e Localiza Redes)
                   </button>
                   <button
                     onClick={() => {
                       onUpdateChecklist('wifi', 'nao', 'Sem sinal / Não localiza redes ou botão desativado');
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white"
                   >
-                    Wi-Fi: NÃO CONECTA
+                    Wi-Fi: NÃO FUNCIONA
                   </button>
                 </div>
               </div>
@@ -1532,44 +1686,18 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   <div>
                     <h3 className="text-base font-bold text-slate-100">Memória Interna & Leitor de Cartão SD Real</h3>
                     <p className="text-xs text-slate-400">
-                      Leitura de armazenamento real do sistema e acesso direto aos arquivos do celular/MicroSD.
+                      Leitura de arquivos do sistema e acesso direto aos arquivos do celular/MicroSD.
                     </p>
                   </div>
                 </div>
 
-                {/* Real Storage Estimate Display from navigator.storage */}
-                {storageEstimate && (
-                  <div className="p-5 rounded-2xl border border-slate-700 bg-slate-900/90 shadow-md mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <HardDrive className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs font-bold text-slate-200">Capacidade Real Alocável do Aparelho</span>
-                      </div>
-                      <span className="text-xs font-mono font-bold text-emerald-400">
-                        {storageEstimate.quotaGB} GB Disponíveis
-                      </span>
-                    </div>
-
-                    <div className="w-full h-3 rounded-full bg-slate-950 p-0.5 border border-slate-800 overflow-hidden mb-2">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${Math.max(4, storageEstimate.percentUsed)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[11px] text-slate-400">
-                      <span>Uso Real de Dados: {storageEstimate.usageMB} MB</span>
-                      <span>Total do Disco: {storageEstimate.quotaGB} GB</span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Real Directory / SD Card Picker Button */}
-                <div className="p-5 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 text-center mb-4">
-                  <Folder className="w-10 h-10 mx-auto text-emerald-400 mb-2" />
-                  <h4 className="text-xs font-bold text-slate-100 mb-1">
+                <div className="p-6 rounded-2xl border-2 border-emerald-500/40 bg-emerald-950/20 text-center mb-5">
+                  <Folder className="w-12 h-12 mx-auto text-emerald-400 mb-2.5" />
+                  <h4 className="text-sm font-bold text-slate-100 mb-1">
                     Acessar Diretório do Celular ou Cartão MicroSD
                   </h4>
-                  <p className="text-[11px] text-slate-400 max-w-md mx-auto mb-4">
+                  <p className="text-xs text-slate-300 max-w-md mx-auto mb-5">
                     Selecione a pasta raiz do cartão de memória ou da memória interna para validar se o leitor físico está lendo os arquivos reais.
                   </p>
 
@@ -1577,12 +1705,12 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                     <button
                       type="button"
                       onClick={handlePickRealDirectory}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
                     >
                       Selecionar Pasta / Cartão SD Real
                     </button>
 
-                    <label className="cursor-pointer px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700">
+                    <label className="cursor-pointer px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all active:scale-95">
                       Abrir Arquivos do Aparelho
                       <input
                         type="file"
@@ -1666,166 +1794,157 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             </div>
           )}
 
-          {/* TAB: CHIPS & SINAL REAL & IR PARA CONFIGURAÇÕES DO APARELHO */}
+          {/* TAB: GERENCIADOR DE CHIPS */}
           {currentTab === 'sim_manager' && (
-            <div className="flex flex-col h-full justify-between max-w-2xl mx-auto py-2">
+            <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
               <div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-100">Gerenciador de Chips & Sinal Real</h3>
-                    <p className="text-xs text-slate-400">
-                      Acesso direto às configurações de rede móvel do aparelho celular e medição da intensidade do sinal.
-                    </p>
-                  </div>
+                <h3 className="text-base font-bold text-slate-100 mb-1">Gerenciador de Chips (SIM)</h3>
+                <p className="text-xs text-slate-400 mb-6">
+                  Verificação de reconhecimento dos chips físicos ou eSIM inseridos no dispositivo.
+                </p>
 
-                  {/* DIRECT BUTTONS TO OPEN DEVICE SETTINGS */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={openDeviceSimSettings}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
-                      title="Abre a tela nativa de gerenciamento de SIM do Android"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Configurações de SIM
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.location.href = 'tel:*#*#4636#*#*';
-                      }}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 cursor-pointer"
-                      title="Menu secreto de informações de telefone e rádio"
-                    >
-                      <Phone className="w-3 h-3 text-emerald-400" />
-                      *#*#4636#*#*
-                    </button>
-                  </div>
-                </div>
-
-                {/* Real Signal Information & Measurement Card */}
-                <div className="p-4 rounded-xl border border-slate-700 bg-slate-900/90 mb-4 shadow-md">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-200 uppercase">Intensidade do Sinal Real do Aparelho</span>
-                      {realSignalDbm && (
-                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          {realSignalDbm} dBm
-                        </span>
-                      )}
+                {/* Instruction requested by user */}
+                <div className="p-6 rounded-2xl border-2 border-blue-500/50 bg-blue-950/20 mb-6 shadow-md">
+                  <div className="flex items-start gap-3">
+                    <div className="p-3 rounded-xl bg-blue-600/30 text-blue-400 shrink-0">
+                      <Cpu className="w-6 h-6" />
                     </div>
-                    <button
-                      type="button"
-                      onClick={measureRealSignal}
-                      disabled={measuringSignal}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${measuringSignal ? 'animate-spin' : ''}`} />
-                      <span>{measuringSignal ? 'Medindo Sinal...' : 'Medir Sinal Real'}</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-xs">
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <span className="text-[11px] text-slate-400 block">Classificação do Sinal</span>
-                      <strong className="text-emerald-400 font-semibold">{realSignalRating}</strong>
-                    </div>
-
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <span className="text-[11px] text-slate-400 block">Taxa Real de Download</span>
-                      <strong className="text-emerald-400 font-mono text-sm">{networkInfo.downlink} Mbps</strong>
-                    </div>
-
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                      <span className="text-[11px] text-slate-400 block">Latência de Rede (RTT)</span>
-                      <strong className="text-emerald-400 font-mono text-sm">{networkInfo.rtt} ms</strong>
+                    <div>
+                      <h4 className="text-sm font-bold text-blue-300 uppercase tracking-wide">
+                        Instrução para Verificação de Chips
+                      </h4>
+                      <p className="text-sm text-slate-200 mt-2 font-medium leading-relaxed">
+                        👉 <strong>Vá na opção abaixo</strong> para entrar nas configurações e verificar se os chips o aparelho reconhece em <strong>Gerenciador de Chips</strong>.
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Telephone Dialer Simulator for *#06# and *#*#4636#*#* */}
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900 max-w-sm mx-auto">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-300">Teclado de Teste Telefônico</span>
-                    <span className="text-[10px] text-emerald-400 font-mono">*#06# (IMEI)</span>
-                  </div>
-
-                  <div className="h-10 px-3 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between font-mono text-base text-emerald-400">
-                    <span>{dialerNumber || <span className="text-slate-600 text-xs font-sans">Digite código de teste...</span>}</span>
-                    {dialerNumber && (
-                      <button onClick={() => setDialerNumber((n) => n.slice(0, -1))} className="text-xs text-slate-400">
-                        ⌫
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 mt-3 select-none">
-                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => {
-                          playDtmf(k);
-                          const updated = dialerNumber + k;
-                          setDialerNumber(updated);
-                          if (updated === '*#06#') {
-                            setShowImeiModal(true);
-                            setDialerNumber('');
-                          }
-                        }}
-                        className="py-2 rounded-lg bg-slate-800 hover:bg-slate-750 active:bg-emerald-600 text-slate-100 font-bold text-sm"
-                      >
-                        {k}
-                      </button>
-                    ))}
-                  </div>
+                {/* Direct button to open device SIM settings */}
+                <div className="text-center mb-8">
+                  <button
+                    type="button"
+                    onClick={openDeviceSimSettings}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-950/60 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <ExternalLink className="w-5 h-5" />
+                    <span>Entrar nas Configurações (Gerenciador de Chips)</span>
+                  </button>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    Abre diretamente a tela de conexões e cartões SIM do sistema operacional do celular.
+                  </p>
                 </div>
-
-                {showImeiModal && (
-                  <div className="mt-4 p-4 rounded-xl border border-emerald-500 bg-emerald-950/40 text-emerald-300 text-xs">
-                    <div className="flex justify-between items-center pb-1 mb-2 border-b border-emerald-800">
-                      <span className="font-bold">DADOS DE IDENTIFICAÇÃO DE CHIP & IMEI</span>
-                      <button onClick={() => setShowImeiModal(false)}>✕</button>
-                    </div>
-                    <p className="font-mono">IMEI 1: 354892109876543</p>
-                    <p className="font-mono">IMEI 2: 354892109876550</p>
-                    <p className="font-mono">Número de Série: RF8T40AB89Z</p>
-                  </div>
-                )}
               </div>
 
               {/* Fast Checklist Actions */}
               <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
-                <span className="text-xs text-slate-400">Gravar no Checklist:</span>
+                <span className="text-xs text-slate-400">Gravar status dos chips:</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => {
-                      onUpdateChecklist('chip_1', 'funciona', 'Reconhece SIM 1 normalmente');
-                      onUpdateChecklist('signal_area', 'sim_area', `Sinal ativo (${networkInfo.downlink} Mbps)`);
+                      onUpdateChecklist('chip_1', 'funciona', 'SIM 1 reconhecido normalmente nas configurações');
                       onClose();
                     }}
                     className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
                   >
-                    Aprovar Chip 1 & Sinal (OK)
+                    SIM 1 Reconhecido (OK)
                   </button>
                   <button
                     onClick={() => {
-                      onUpdateChecklist('chip_2', 'funciona', 'Reconhece SIM 2 normalmente');
+                      onUpdateChecklist('chip_2', 'funciona', 'SIM 2 reconhecido normalmente nas configurações');
                       onClose();
                     }}
                     className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
                   >
-                    Aprovar Chip 2 (OK)
+                    SIM 2 Reconhecido (OK)
                   </button>
                   <button
                     onClick={() => {
-                      onUpdateChecklist('signal_area', 'nao_area', 'Sem sinal / Não dá área');
+                      onUpdateChecklist('chip_1', 'nao', 'Aparelho não reconhece cartão SIM / Sem serviço');
                       onClose();
                     }}
                     className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
                   >
-                    Sinal: NÃO DÁ ÁREA
+                    Falha / Não Reconhece Chip
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SINAL DA OPERADORA */}
+          {currentTab === 'signal_area' && (
+            <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
+              <div>
+                <h3 className="text-base font-bold text-slate-100 mb-1">Sinal da Operadora (Rede Móvel)</h3>
+                <p className="text-xs text-slate-400 mb-6">
+                  Confirmação de recepção de sinal celular e registro na operadora de telefonia.
+                </p>
+
+                {/* Instruction requested by user */}
+                <div className="p-6 rounded-2xl border-2 border-emerald-500/50 bg-emerald-950/20 mb-6 shadow-md">
+                  <div className="flex items-start gap-3">
+                    <div className="p-3 rounded-xl bg-emerald-600/30 text-emerald-400 shrink-0">
+                      <Radio className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-300 uppercase tracking-wide">
+                        Instrução para Verificação de Sinal
+                      </h4>
+                      <p className="text-sm text-slate-200 mt-2 font-medium leading-relaxed">
+                        👉 <strong>Verifique na barra de status</strong> se o sinal e o nome da operadora estão sendo reconhecidos, assim se confirma que está ok o sinal.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Option to pull down status bar */}
+                <div className="p-6 rounded-2xl border border-slate-700 bg-slate-900/90 text-center mb-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowStatusNotice(true);
+                      setTimeout(() => setShowStatusNotice(false), 5000);
+                    }}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-950/60 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Smartphone className="w-5 h-5" />
+                    <span>Desça a Barra de Status do Celular para Conferir</span>
+                  </button>
+
+                  <p className="text-xs text-slate-300 max-w-md mx-auto mt-3">
+                    Arraste o topo da tela do celular para baixo para visualizar o ícone das barras de sinal e o nome da operadora (ex: Vivo, Claro, Tim) no topo do aparelho.
+                  </p>
+
+                  {showStatusNotice && (
+                    <div className="mt-4 p-3 rounded-xl bg-emerald-950/80 border border-emerald-600 text-xs text-emerald-300 font-semibold animate-pulse">
+                      📱 Arraste o dedo do topo da tela para baixo agora para checar o sinal e a operadora!
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Fast Checklist Actions */}
+              <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
+                <span className="text-xs text-slate-400">Gravar Sinal no Checklist:</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      onUpdateChecklist('signal_area', 'sim_area', 'Sinal da operadora confirmado na barra de status (Dá Área OK)');
+                      onClose();
+                    }}
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                  >
+                    SIM: SINAL E OPERADORA OK (Dá Área)
+                  </button>
+                  <button
+                    onClick={() => {
+                      onUpdateChecklist('signal_area', 'nao_area', 'Sem sinal / Não dá área / Sem serviço na barra de status');
+                      onClose();
+                    }}
+                    className="px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white"
+                  >
+                    NÃO: SEM SINAL / NÃO DÁ ÁREA
                   </button>
                 </div>
               </div>

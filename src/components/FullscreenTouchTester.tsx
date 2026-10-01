@@ -17,13 +17,25 @@ export const FullscreenTouchTester: React.FC<FullscreenTouchTesterProps> = ({
   const [showExitHint, setShowExitHint] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const exitTimeoutRef = useRef<number | null>(null);
+  const hasFinishedRef = useRef(false);
 
   const totalCells = cols * rows;
 
   // Calculate dynamic rows & cols to cover screen aspect ratio
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hasFinishedRef.current = false;
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate(0);
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
 
+    hasFinishedRef.current = false;
     const width = window.innerWidth;
     const height = window.innerHeight;
     const cellTargetSize = 44; // px for each touch cell
@@ -93,17 +105,26 @@ export const FullscreenTouchTester: React.FC<FullscreenTouchTesterProps> = ({
 
   // Check if 100% complete
   useEffect(() => {
-    if (totalCells > 0 && touchedCells.size >= totalCells) {
-      // Completed 100%!
-      if ('vibrate' in navigator) navigator.vibrate([100, 50, 150]);
-      setTimeout(() => {
-        onClose({
-          status: 'sim',
-          observation: '100% da tela testada em tela cheia - Touch perfeito sem pontos mortos',
-        });
-      }, 400);
+    if (isOpen && totalCells > 0 && touchedCells.size >= totalCells && !hasFinishedRef.current) {
+      hasFinishedRef.current = true;
+      // Stop any vibration immediately (never vibrate constantly)
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate(0);
+        } catch {
+          // ignore
+        }
+      }
+      // Exit fullscreen if active
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      onClose({
+        status: 'sim',
+        observation: '100% da tela testada em tela cheia - Touch perfeito sem pontos mortos',
+      });
     }
-  }, [touchedCells.size, totalCells, onClose]);
+  }, [touchedCells.size, totalCells, isOpen, onClose]);
 
   // Emergency Exit Button: MUST BE CLICKED 3 TIMES
   const handleExitClick = (e: React.MouseEvent) => {
@@ -124,6 +145,16 @@ export const FullscreenTouchTester: React.FC<FullscreenTouchTesterProps> = ({
 
     if (nextClicks >= 3) {
       // Exit confirmed after 3 intentional clicks!
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate(0);
+        } catch {
+          // ignore
+        }
+      }
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
       const percentage = Math.round((touchedCells.size / totalCells) * 100);
       onClose({
         status: percentage >= 80 ? 'mau_toque' : 'nao',

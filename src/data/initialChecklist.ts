@@ -211,7 +211,7 @@ export const CHECKLIST_ITEMS: ChecklistItemConfig[] = [
     title: 'Sinal da Rede / Área',
     subtitle: 'Recepção de sinal celular 4G/5G',
     iconName: 'Signal',
-    testType: 'sim_manager',
+    testType: 'signal_area',
     quickNotes: ['Só emergência', 'Possível restrição/bloqueio IMEI', 'Sinal oscilando'],
     options: [
       { id: 'sim_area', label: 'SIM DÁ ÁREA', shortLabel: 'SIM DÁ ÁREA', tone: 'success', description: 'Sinal de rede ativo, faz e recebe chamadas' },

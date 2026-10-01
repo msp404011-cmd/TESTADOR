@@ -49,7 +49,8 @@ export interface ChecklistItemConfig {
     | 'wifi'
     | 'biometrics'
     | 'sd_card'
-    | 'sim_manager';
+    | 'sim_manager'
+    | 'signal_area';
 }
 
 export interface ChecklistItemState {
