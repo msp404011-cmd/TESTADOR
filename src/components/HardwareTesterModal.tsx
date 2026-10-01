@@ -526,7 +526,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     }
   };
 
-  // REAL FLASHLIGHT / TORCH OF THE PHONE (Controle real do LED físico)
+  // REAL FLASHLIGHT / TORCH OF THE PHONE (Controle direto do LED físico da câmera traseira)
   const toggleRealPhoneFlash = async () => {
     setTorchError(null);
     if (isTorchOn) {
@@ -537,99 +537,58 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     // Stop active camera so rear camera hardware is released
     stopCamera();
 
-    if (!window.isSecureContext && location.protocol !== 'https:' && location.hostname !== 'localhost') {
-      setTorchError('O navegador exige conexão segura (HTTPS) para controlar o flash físico.');
-      return;
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setTorchError('Navegador incompatível com a API de controle de câmera e flash.');
-      return;
-    }
-
     let stream: MediaStream | null = null;
 
     try {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-          },
-          audio: false,
+          video: { facingMode: { exact: 'environment' } },
         });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
+          video: { facingMode: { ideal: 'environment' } },
         });
       }
 
       const track = stream.getVideoTracks()[0];
       if (!track) {
-        throw new Error('Câmera traseira não encontrada no aparelho.');
+        throw new Error('Nenhuma câmera traseira encontrada');
       }
 
-      // Attach stream to invisible video element so Android keeps camera HAL daemon running
+      // Attach stream to video element to keep camera daemon active
       if (torchVideoRef.current) {
         torchVideoRef.current.srcObject = stream;
         try {
           await torchVideoRef.current.play();
         } catch {
-          // ignore play error
+          // ignore
         }
-      }
-
-      // Allow camera hardware daemon to initialize video frames before applying torch constraint
-      await new Promise((r) => setTimeout(r, 250));
-
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIOS) {
-        throw new Error(
-          'No iOS (iPhone/iPad), o navegador Safari restringe o controle direto do flash LED por páginas web. Teste pelo app Câmera nativo do aparelho.'
-        );
       }
 
       const capabilities = (typeof track.getCapabilities === 'function' ? track.getCapabilities() : {}) as any;
 
-      let torchApplied = false;
-
-      // 1. Try standard applyConstraints with torch: true
-      try {
-        await (track as any).applyConstraints({
-          advanced: [{ torch: true }],
+      if (capabilities && capabilities.torch) {
+        await track.applyConstraints({
+          advanced: [{ torch: true } as any],
         });
-        torchApplied = true;
-      } catch (applyErr) {
-        console.warn('Standard torch constraint error:', applyErr);
-      }
-
-      // 2. Try ImageCapture fallback if available
-      if (!torchApplied && 'ImageCapture' in window) {
+        torchTrackRef.current = stream;
+        setIsTorchOn(true);
+        onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+      } else {
+        // Try fallback constraint if getCapabilities is unpopulated
         try {
-          const ic = new (window as any).ImageCapture(track);
-          await (track as any).applyConstraints({
-            advanced: [{ torch: true, fillLightMode: 'torch' } as any],
+          await track.applyConstraints({
+            advanced: [{ torch: true } as any],
           });
-          torchApplied = true;
-        } catch (icErr) {
-          console.warn('ImageCapture fallback error:', icErr);
+          torchTrackRef.current = stream;
+          setIsTorchOn(true);
+          onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+        } catch {
+          throw new Error('Torch não suportado');
         }
       }
-
-      // 3. If capabilities exist and explicitly show no torch support
-      if (!torchApplied && capabilities && 'torch' in capabilities && !capabilities.torch) {
-        throw new Error('FLASH NÃO SUPORTADO NESTE APARELHO/NAVEGADOR');
-      }
-
-      if (!torchApplied) {
-        throw new Error('FLASH NÃO SUPORTADO NESTE APARELHO/NAVEGADOR');
-      }
-
-      torchTrackRef.current = stream;
-      setIsTorchOn(true);
-      onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
-    } catch (err: any) {
-      console.error('Torch error:', err);
+    } catch (error: any) {
+      console.warn('Torch error:', error);
       if (stream) {
         try {
           stream.getTracks().forEach((t) => t.stop());
@@ -640,22 +599,11 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
       if (torchVideoRef.current) {
         torchVideoRef.current.srcObject = null;
       }
-
-      let msg = 'Não foi possível ligar o flash do celular.';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Permissão de acesso à câmera negada. Permita o uso da câmera para ligar o flash.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'Câmera traseira com flash não encontrada no dispositivo.';
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'A câmera está sendo utilizada por outro recurso ou aplicativo. Feche outros apps e tente novamente.';
-      } else if (err.name === 'OverconstrainedError') {
-        msg = 'Câmera traseira não suporta a ativação contínua do flash LED.';
-      } else if (err.message) {
-        msg = err.message;
-      }
-
-      setTorchError(msg);
       setIsTorchOn(false);
+
+      const alertMsg =
+        'O navegador do aparelho bloqueou o acesso direto ao LED. Por favor, ative a lanterna pelo painel de notificações do celular.';
+      setTorchError(alertMsg);
     }
   };
 

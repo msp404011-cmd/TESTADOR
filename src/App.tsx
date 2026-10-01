@@ -20,6 +20,8 @@ import { ChecklistSection } from './components/ChecklistSection';
 import { HardwareTesterModal } from './components/HardwareTesterModal';
 import { FullscreenTouchTester } from './components/FullscreenTouchTester';
 import { TestImagePreviewModal } from './components/TestImagePreviewModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { generateTestReportImage, calculateReportStats } from './utils/generateTestReportImage';
 import {
   CheckCircle,
@@ -243,6 +245,9 @@ export default function App() {
           showToast(`Teste de toque finalizado: ${result.status === 'sim' ? 'Aprovado 100%' : 'Com ressalvas'}`);
         }}
       />
+
+      {/* OFFLINE CONNECTIVITY INDICATOR */}
+      <OfflineIndicator />
     </div>
   );
 }

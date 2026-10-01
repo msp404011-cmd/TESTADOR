@@ -5,6 +5,7 @@ import {
   Image as ImageIcon,
   Share2,
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   onResetTest: () => void;
@@ -38,6 +39,9 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Direct primary actions */}
       <div className="flex items-center gap-2">
+        {/* PWA Install Button */}
+        <PWAInstallButton variant="header" />
+
         <button
           type="button"
           onClick={onResetTest}
