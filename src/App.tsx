@@ -23,6 +23,7 @@ import { ChecklistSection } from './components/ChecklistSection';
 import { OrderInfoForm } from './components/OrderInfoForm';
 import { HardwareTesterModal } from './components/HardwareTesterModal';
 import { PatternUnlockModal } from './components/PatternUnlockModal';
+import { FullscreenTouchTester } from './components/FullscreenTouchTester';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { PrintableServiceOrder } from './components/PrintableServiceOrder';
 import {
@@ -46,6 +47,7 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'checklist' | 'order_info' | 'summary'>('checklist');
   const [isTesterOpen, setIsTesterOpen] = useState(false);
+  const [isFullscreenTouchOpen, setIsFullscreenTouchOpen] = useState(false);
   const [testerKey, setTesterKey] = useState<ChecklistItemKey | null>(null);
   const [isPatternOpen, setIsPatternOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -148,6 +150,10 @@ export default function App() {
   };
 
   const handleOpenTester = (key?: ChecklistItemKey) => {
+    if (key === 'touch_screen') {
+      setIsFullscreenTouchOpen(true);
+      return;
+    }
     setTesterKey(key || null);
     setIsTesterOpen(true);
   };
@@ -385,6 +391,23 @@ export default function App() {
         onUpdateChecklist={(key, status, obs) => {
           handleUpdateChecklistItem(key, { status, observation: obs || '' });
           showToast(`Item atualizado no checklist!`);
+        }}
+        onOpenFullscreenTouch={() => {
+          setIsTesterOpen(false);
+          setIsFullscreenTouchOpen(true);
+        }}
+      />
+
+      {/* FULLSCREEN TOUCH TESTER */}
+      <FullscreenTouchTester
+        isOpen={isFullscreenTouchOpen}
+        onClose={(result) => {
+          setIsFullscreenTouchOpen(false);
+          handleUpdateChecklistItem('touch_screen', {
+            status: result.status,
+            observation: result.observation,
+          });
+          showToast(`Teste de toque finalizado: ${result.status === 'sim' ? 'Aprovado 100%' : 'Com ressalvas'}`);
         }}
       />
 

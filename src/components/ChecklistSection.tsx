@@ -339,26 +339,26 @@ export const ChecklistSection: React.FC<ChecklistSectionProps> = ({
                           <Sparkles className="w-3 h-3 text-emerald-400" />
                           <span>
                             {item.key === 'wifi'
-                              ? 'Mostrar Redes Wi-Fi'
+                              ? 'Ver Status & Redes Wi-Fi'
                               : item.key === 'volume_up' || item.key === 'volume_down'
-                              ? 'Testar Botões (+ / -)'
+                              ? 'Testar Botões de Volume (+ / -)'
                               : item.key === 'biometrics'
                               ? 'Testar Leitor da Digital'
                               : item.key === 'sd_card'
-                              ? 'Abrir Explorador de Arquivos'
+                              ? 'Ler Memória Real & Cartão SD'
                               : item.key === 'chip_1' || item.key === 'chip_2' || item.key === 'signal_area'
-                              ? 'Abrir Gerenciador de Chips'
+                              ? 'Abrir Gerenciador de Chips & Configurações'
                               : item.key === 'touch_screen'
-                              ? 'Abrir Grade de Toque'
+                              ? 'Abrir Teste em Tela Cheia (100% da Tela)'
                               : item.key === 'microphone'
                               ? 'Gravar & Testar Microfone'
                               : item.key === 'audio'
-                              ? 'Tocar Tons de Áudio'
+                              ? 'Testar Alto-falantes (Máx) & Auricular Ouvido'
                               : item.key === 'front_camera' || item.key === 'rear_camera'
-                              ? 'Abrir Câmera'
+                              ? 'Abrir Câmera em Máxima Resolução'
                               : item.key === 'flash'
-                              ? 'Testar Flash / Tela'
-                              : 'Testar no Navegador'}
+                              ? 'Ligar Flash LED Físico do Celular'
+                              : 'Testar no Aparelho'}
                           </span>
                           <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                         </button>
