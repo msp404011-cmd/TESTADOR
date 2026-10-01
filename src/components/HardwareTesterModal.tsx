@@ -540,22 +540,29 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     let stream: MediaStream | null = null;
 
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('API de mídia não suportada');
+      }
+
+      // Request rear camera stream
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: 'environment' } },
+          video: { facingMode: 'environment' },
+          audio: false,
         });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
+          video: { facingMode: { exact: 'environment' } },
+          audio: false,
         });
       }
 
       const track = stream.getVideoTracks()[0];
       if (!track) {
-        throw new Error('Nenhuma câmera traseira encontrada');
+        throw new Error('Câmera traseira não encontrada');
       }
 
-      // Attach stream to video element to keep camera daemon active
+      // Attach stream to video element to keep camera daemon active on mobile
       if (torchVideoRef.current) {
         torchVideoRef.current.srcObject = stream;
         try {
@@ -565,26 +572,29 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
         }
       }
 
+      // Allow camera hardware daemon to initialize before applying torch constraint
+      await new Promise((r) => setTimeout(r, 150));
+
       const capabilities = (typeof track.getCapabilities === 'function' ? track.getCapabilities() : {}) as any;
 
       if (capabilities && capabilities.torch) {
-        await track.applyConstraints({
-          advanced: [{ torch: true } as any],
+        await (track as any).applyConstraints({
+          advanced: [{ torch: true }],
         });
         torchTrackRef.current = stream;
         setIsTorchOn(true);
-        onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+        onUpdateChecklist('flash', 'sim', 'Flash LED traseiro acendeu com brilho total');
       } else {
-        // Try fallback constraint if getCapabilities is unpopulated
+        // Try fallback constraint in case capabilities is not exposed
         try {
-          await track.applyConstraints({
-            advanced: [{ torch: true } as any],
+          await (track as any).applyConstraints({
+            advanced: [{ torch: true }],
           });
           torchTrackRef.current = stream;
           setIsTorchOn(true);
-          onUpdateChecklist('flash', 'sim', 'Flash LED traseiro ligado fisicamente no aparelho');
+          onUpdateChecklist('flash', 'sim', 'Flash LED traseiro acendeu com brilho total');
         } catch {
-          throw new Error('Torch não suportado');
+          throw new Error('API torch não suportada neste dispositivo');
         }
       }
     } catch (error: any) {
@@ -602,8 +612,13 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
       setIsTorchOn(false);
 
       const alertMsg =
-        'O navegador do aparelho bloqueou o acesso direto ao LED. Por favor, ative a lanterna pelo painel de notificações do celular.';
+        'Este aparelho ou navegador não suporta controle direto do Flash via Web. Por favor, ative a lanterna pelo painel de notificações/atalhos rápidos do celular.';
       setTorchError(alertMsg);
+      try {
+        window.alert(alertMsg);
+      } catch {
+        // ignore if blocked
+      }
     }
   };
 
@@ -1142,6 +1157,19 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
                     <button
                       type="button"
+                      onClick={toggleRealPhoneFlash}
+                      className={`inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 shadow-lg cursor-pointer ${
+                        isTorchOn
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50 ring-2 ring-rose-400/40'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4 fill-current" />
+                      <span>{isTorchOn ? 'Desligar Flash' : 'Ligar Flash'}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => {
                         // Open quick settings or settings intent
                         try {
@@ -1150,29 +1178,18 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                           // fallback
                         }
                       }}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-950/50 transition-all cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 border border-slate-700 transition-all cursor-pointer"
+                      title="Abrir configurações de atalhos e lanterna do smartphone"
                     >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Abrir Atalhos / Configurações</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleRealPhoneFlash}
-                      className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-lg ${
-                        isTorchOn
-                          ? 'bg-rose-600 hover:bg-rose-500 text-white'
-                          : 'bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700'
-                      }`}
-                    >
-                      <Zap className="w-4 h-4" />
-                      <span>{isTorchOn ? 'Desligar LED' : 'Acionar LED Direto'}</span>
+                      <ExternalLink className="w-4 h-4 text-amber-400" />
+                      <span>Atalhos do Sistema</span>
                     </button>
                   </div>
 
                   {torchError && (
-                    <div className="mt-3 p-2.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-300">
-                      {torchError}
+                    <div className="mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 text-left">
+                      <p className="font-semibold text-amber-300 mb-1">Aviso do Sistema:</p>
+                      <p>{torchError}</p>
                     </div>
                   )}
                 </div>
