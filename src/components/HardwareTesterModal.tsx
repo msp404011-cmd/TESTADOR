@@ -35,6 +35,10 @@ import {
   Radio,
   FlipHorizontal,
   Battery,
+  ZoomIn,
+  ZoomOut,
+  Eye,
+  Grid,
 } from 'lucide-react';
 import { ChecklistItemKey } from '../types/order';
 import { useRealDeviceInfo, saveSdCardDetection } from '../hooks/useRealDeviceInfo';
@@ -166,6 +170,10 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraResolution, setCameraResolution] = useState<{ width: number; height: number } | null>(null);
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
+  const [isInspectingPhoto, setIsInspectingPhoto] = useState(false);
+  const [photoZoom, setPhotoZoom] = useState<number>(1);
+  const [photoFilter, setPhotoFilter] = useState<'normal' | 'contrast' | 'grayscale' | 'invert'>('normal');
+  const [showPhotoGrid, setShowPhotoGrid] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
@@ -897,6 +905,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     setCameraError(null);
     setCameraResolution(null);
     setCameraQuality(quality);
+    setCameraFacing(facing);
 
     try {
       const q = QUALITY_CONSTRAINTS[quality] || QUALITY_CONSTRAINTS.max;
@@ -948,7 +957,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     setCameraActive(false);
   };
 
-  // Real Camera Snapshot
+  // Real Camera Snapshot with Full-Screen Inspection Trigger
   const takeCameraSnapshot = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
@@ -962,8 +971,11 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
         ctx.scale(-1, 1);
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.98);
       setCapturedPhotoUrl(dataUrl);
+      setIsInspectingPhoto(true);
+      setPhotoZoom(1);
+      setPhotoFilter('normal');
       playMaxTone(1400, 0.1);
     }
   };
@@ -1304,19 +1316,19 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
           {/* TAB: FLASH LED DO CELULAR (Direcionado para a Lanterna do Aparelho) */}
           {currentTab === 'display' && (
-            <div className="flex flex-col h-full justify-between max-w-xl mx-auto py-2">
+            <div className="flex flex-col h-full justify-between max-w-md mx-auto py-2">
               <div>
-                <h3 className="text-base font-bold text-slate-100">Teste do Flash LED / Lanterna</h3>
-                <p className="text-xs text-slate-400 mb-6">
-                  Teste o LED físico traseiro utilizando o acionamento direto ou o atalho de Lanterna nativo do smartphone.
+                <h3 className="text-base font-bold text-slate-100 mb-1">Teste do Flash LED / Lanterna</h3>
+                <p className="text-xs text-slate-400 mb-4">
+                  Acione a lanterna física traseira do aparelho para verificar a intensidade e disparo do LED.
                 </p>
 
-                {/* Primary Physical Torch Card */}
-                <div className="p-6 sm:p-8 rounded-2xl border-2 border-slate-700 bg-slate-900/90 text-center shadow-xl space-y-4">
+                {/* Primary Physical Torch Card - Clean & Compact */}
+                <div className="p-6 rounded-2xl border-2 border-slate-700 bg-slate-900/90 text-center shadow-xl space-y-4">
                   <div
                     className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center transition-all ${
                       isTorchOn
-                        ? 'bg-amber-400 text-slate-950 shadow-2xl shadow-amber-400/80 ring-8 ring-amber-400/30'
+                        ? 'bg-amber-400 text-slate-950 shadow-2xl shadow-amber-400/80 ring-8 ring-amber-400/30 animate-pulse'
                         : 'bg-slate-800 border-2 border-slate-700 text-amber-400'
                     }`}
                   >
@@ -1325,103 +1337,42 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
                   <div>
                     <span className="text-sm font-bold uppercase tracking-wider block text-slate-100">
-                      Lanterna / Flash Traseiro
+                      {isTorchOn ? '🔦 LED Flash Ligado' : '🔦 LED Flash Desligado'}
                     </span>
-                    <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
-                      Toque no botão abaixo para descer os atalhos do sistema ou use o acionamento direto para acender o LED traseiro.
+                    <p className="text-xs text-slate-300 max-w-xs mx-auto mt-1 leading-relaxed">
+                      {isTorchOn
+                        ? 'O LED físico traseiro está aceso. Verifique a potência e estabilidade do feixe de luz.'
+                        : 'Toque no botão abaixo para ligar o flash LED do celular via hardware.'}
                     </p>
                   </div>
 
-                  {/* Direct Command Buttons */}
-                  <div className="flex flex-col gap-2.5 justify-center pt-2">
+                  {/* Direct Command Button */}
+                  <div className="flex flex-col gap-2.5 justify-center pt-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowFlashNotice(true);
-                        try {
-                          window.location.href = 'intent:#Intent;action=android.settings.PANEL;end';
-                        } catch {
-                          try {
-                            window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
-                          } catch {}
-                        }
-                        setTimeout(() => setShowFlashNotice(false), 6000);
-                      }}
-                      className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-lg shadow-amber-950/50 active:scale-95 transition-all cursor-pointer"
+                      onClick={toggleRealPhoneFlash}
+                      className={`w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 shadow-lg cursor-pointer ${
+                        isTorchOn
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50 ring-2 ring-rose-400/40'
+                          : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-950/50'
+                      }`}
                     >
-                      <Smartphone className="w-5 h-5" />
-                      <span>⬇️ Descer Barra de Tarefas (Atalho da Lanterna)</span>
+                      <Zap className="w-5 h-5 fill-current" />
+                      <span>{isTorchOn ? 'Desligar Flash LED' : 'Acender Flash LED (Hardware)'}</span>
                     </button>
-
-                    <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
-                      <button
-                        type="button"
-                        onClick={toggleRealPhoneFlash}
-                        className={`flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md cursor-pointer ${
-                          isTorchOn
-                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50 ring-2 ring-rose-400/40'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
-                        }`}
-                      >
-                        <Zap className="w-4 h-4 fill-current" />
-                        <span>{isTorchOn ? 'Desligar Flash LED' : 'Acender Flash via Hardware'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          try {
-                            window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
-                          } catch {
-                            // fallback
-                          }
-                        }}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 border border-slate-700 transition-all cursor-pointer"
-                        title="Abrir configurações de atalhos e lanterna do smartphone"
-                      >
-                        <ExternalLink className="w-4 h-4 text-amber-400" />
-                        <span>Configurações</span>
-                      </button>
-                    </div>
                   </div>
 
-                  {showFlashNotice && (
-                    <div className="mt-3 p-3.5 rounded-xl bg-amber-950/80 border border-amber-500 text-xs text-amber-200 text-center font-semibold animate-pulse space-y-1">
-                      <p>📱 <strong>Arraste o dedo do topo da tela para baixo agora!</strong></p>
-                      <p className="text-[11px] text-amber-300">Puxe o painel de atalhos rápidos e toque no ícone "Lanterna" para testar o LED.</p>
-                    </div>
-                  )}
-
                   {torchError && (
-                    <div className="mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 text-left">
-                      <p className="font-semibold text-amber-300 mb-1">Aviso do Sistema:</p>
+                    <div className="mt-2 p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 text-left">
                       <p>{torchError}</p>
                     </div>
                   )}
-                </div>
-
-                {/* Display Color Frame for dead pixels */}
-                <div className="mt-6 p-4 rounded-xl border border-slate-800 bg-slate-900/60">
-                  <span className="text-xs font-semibold text-slate-300 block mb-2">
-                    Inspecionar Tela / Dead Pixels (Brilho Máximo)
-                  </span>
-                  <div
-                    onClick={() => setDisplayColorIndex((prev) => (prev + 1) % displayColors.length)}
-                    className={`w-full h-20 rounded-lg border flex flex-col items-center justify-center p-3 cursor-pointer transition-all ${displayColors[displayColorIndex].bg}`}
-                  >
-                    <span className={`text-xs font-bold uppercase ${displayColors[displayColorIndex].text}`}>
-                      {displayColors[displayColorIndex].name}
-                    </span>
-                    <span className={`text-[10px] mt-0.5 opacity-70 ${displayColors[displayColorIndex].text}`}>
-                      (Toque para alternar cor)
-                    </span>
-                  </div>
                 </div>
               </div>
 
               {/* Fast Checklist Actions */}
               <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
-                <span className="text-xs text-slate-400">Gravar no checklist:</span>
+                <span className="text-xs text-slate-400">Gravar Flash no checklist:</span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -1429,9 +1380,19 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       turnOffTorch();
                       onClose();
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer active:scale-95"
                   >
                     Flash: SIM (Funciona)
+                  </button>
+                  <button
+                    onClick={() => {
+                      onUpdateChecklist('flash', 'com_detalhes', 'Flash LED com brilho fraco ou instável');
+                      turnOffTorch();
+                      onClose();
+                    }}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer active:scale-95"
+                  >
+                    C/ DETALHES
                   </button>
                   <button
                     onClick={() => {
@@ -1439,7 +1400,7 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       turnOffTorch();
                       onClose();
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer active:scale-95"
                   >
                     Flash: NÃO FUNCIONA
                   </button>
@@ -1448,23 +1409,28 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             </div>
           )}
 
-          {/* TAB: CÂMERA EM MÁXIMA RESOLUÇÃO (Área Maior com Seletor de Resolução e Espelhamento) */}
+          {/* TAB: CÂMERA EM MÁXIMA RESOLUÇÃO & INSPEÇÃO DE MANCHAS */}
           {currentTab === 'camera' && (
             <div className="flex flex-col h-full justify-between items-center max-w-4xl mx-auto py-1">
               <div className="w-full">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                {/* Header & Controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-100">Câmera em Qualidade Nativa</span>
+                      <span className="text-sm font-bold text-slate-100">
+                        {cameraFacing === 'user' ? '🤳 Câmera Frontal (Selfie)' : '📸 Câmera Traseira Principal'}
+                      </span>
                       {cameraResolution && (
                         <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
                           {cameraResolution.width} x {cameraResolution.height}
-                          {cameraResolution.width >= 3840 ? ' (4K UHD)' : cameraResolution.width >= 1920 ? ' (Full HD)' : ' (HD)'}
+                          {cameraResolution.width >= 3840 ? ' (4K)' : cameraResolution.width >= 1920 ? ' (Full HD)' : ' (HD)'}
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-slate-400">
-                      Fluxo de vídeo sem compressão. Ajuste a resolução para a permitida pelo sensor do seu aparelho.
+                      {isInspectingPhoto
+                        ? 'Analise a foto capturada em tamanho grande para verificar se há manchas no sensor, poeira na lente ou riscos.'
+                        : 'Sensor em tempo real. Capture uma foto para verificar manchas na imagem.'}
                     </p>
                   </div>
 
@@ -1473,161 +1439,268 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       onClick={() => {
                         const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
                         setCameraFacing(nextFacing);
+                        setIsCameraMirrored(nextFacing === 'user');
+                        setIsInspectingPhoto(false);
+                        setCapturedPhotoUrl(null);
                         startCamera(nextFacing);
                       }}
-                      className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700"
+                      className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer active:scale-95 transition-all"
                     >
-                      Alternar: {cameraFacing === 'user' ? 'Frontal (Selfie)' : 'Traseira Principal'}
+                      Alternar para: {cameraFacing === 'user' ? 'Traseira' : 'Frontal'}
                     </button>
                   </div>
                 </div>
 
-                {/* Camera Quality Bar & Mirror Toggle */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 p-2.5 rounded-xl border border-slate-800 bg-slate-900/90">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] text-slate-400 font-bold mr-1">Qualidade da Câmera:</span>
-                    {(
-                      [
-                        { id: 'max', label: 'Máxima / Auto' },
-                        { id: '4k', label: '4K (2160p)' },
-                        { id: 'fhd', label: 'Full HD (1080p)' },
-                        { id: 'hd', label: 'HD (720p)' },
-                        { id: 'sd', label: 'SD (480p)' },
-                      ] as const
-                    ).map((q) => (
+                {/* LARGE PHOTO INSPECTOR VIEW FOR SPOTTING STAINS (MANCHAS NA IMAGEM) */}
+                {isInspectingPhoto && capturedPhotoUrl ? (
+                  <div className="space-y-3">
+                    {/* Inspector Toolbar: Zoom, Contrast Filters, Grid */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border border-indigo-500/30 bg-indigo-950/20">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] text-indigo-300 font-bold mr-1">🔍 Filtro de Manchas:</span>
+                        {(
+                          [
+                            { id: 'normal', label: 'Normal' },
+                            { id: 'contrast', label: '⚡ Alto Contraste' },
+                            { id: 'grayscale', label: '🖤 Monocromático' },
+                            { id: 'invert', label: '🧪 Invertido' },
+                          ] as const
+                        ).map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => setPhotoFilter(f.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              photoFilter === f.id
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
+                          <span className="text-[10px] text-slate-400 font-semibold px-1">Zoom:</span>
+                          {[1, 2, 3, 4].map((z) => (
+                            <button
+                              key={z}
+                              type="button"
+                              onClick={() => setPhotoZoom(z)}
+                              className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+                                photoZoom === z
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                              }`}
+                            >
+                              {z}x
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowPhotoGrid((prev) => !prev)}
+                          className={`p-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                            showPhotoGrid
+                              ? 'bg-blue-600 border-blue-400 text-white'
+                              : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          }`}
+                          title="Alternar grade de alinhamento"
+                        >
+                          <Grid className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Big Photo Container with Zoom and Pan capability */}
+                    <div className="relative w-full h-[50vh] max-h-[500px] rounded-2xl overflow-auto border-2 border-indigo-500/50 bg-black flex items-center justify-center shadow-2xl">
+                      <div
+                        className="relative transition-transform duration-200"
+                        style={{
+                          transform: `scale(${photoZoom})`,
+                          transformOrigin: 'center center',
+                        }}
+                      >
+                        <img
+                          src={capturedPhotoUrl}
+                          alt="Foto capturada em alta resolução"
+                          className={`max-h-[48vh] w-auto max-w-full object-contain select-none ${
+                            photoFilter === 'contrast'
+                              ? 'contrast-200 brightness-105'
+                              : photoFilter === 'grayscale'
+                              ? 'grayscale contrast-150'
+                              : photoFilter === 'invert'
+                              ? 'invert contrast-125'
+                              : ''
+                          }`}
+                        />
+
+                        {/* Alignment Grid Overlay */}
+                        {showPhotoGrid && (
+                          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none border border-emerald-400/40">
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                            <div className="border border-emerald-400/30"></div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Photo Info Badge */}
+                      <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/80 backdrop-blur-xs border border-white/20 text-[11px] font-semibold text-white">
+                        📷 Foto Capturada ({cameraFacing === 'user' ? 'Frontal' : 'Traseira'})
+                      </div>
+
                       <button
-                        key={q.id}
                         type="button"
-                        onClick={() => startCamera(cameraFacing, q.id)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                          cameraQuality === q.id
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-750 hover:text-white border border-slate-700'
-                        }`}
+                        onClick={() => {
+                          setIsInspectingPhoto(false);
+                          setCapturedPhotoUrl(null);
+                        }}
+                        className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 cursor-pointer transition-all"
                       >
-                        {q.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsCameraMirrored((prev) => !prev)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                      isCameraMirrored
-                        ? 'bg-blue-600 border-blue-400 text-white shadow-xs'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-750 hover:text-white'
-                    }`}
-                    title="Inverte ou desespelha a imagem da câmera horizontalmente"
-                  >
-                    <FlipHorizontal className="w-3.5 h-3.5" />
-                    <span>{isCameraMirrored ? 'Espelhado (Ativo)' : 'Inverter / Espelhar'}</span>
-                  </button>
-                </div>
-
-                {cameraError ? (
-                  <div className="p-8 rounded-xl border border-rose-800/60 bg-rose-950/20 text-rose-300 text-center text-xs">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-rose-400" />
-                    {cameraError}
-                    <div className="mt-3">
-                      <button
-                        onClick={() => startCamera(cameraFacing)}
-                        className="px-4 py-2 rounded-md bg-rose-800 text-white hover:bg-rose-700 text-xs font-bold"
-                      >
-                        Tentar novamente
+                        <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Tirar Nova Foto</span>
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="relative w-full h-[50vh] max-h-[480px] rounded-2xl overflow-hidden border-2 border-slate-700 bg-black flex items-center justify-center shadow-2xl">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className={`w-full h-full object-contain transition-transform ${isCameraMirrored ? 'scale-x-[-1]' : ''}`}
-                    />
-
-                    {!cameraActive && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-slate-400 text-xs p-4 text-center">
-                        <Camera className="w-10 h-10 mb-2 text-slate-500 animate-pulse" />
-                        Iniciando sensor de câmera em resolução máxima...
+                  /* LIVE CAMERA STREAM VIEW */
+                  <div>
+                    {/* Camera Quality Bar & Mirror Toggle */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 p-2.5 rounded-xl border border-slate-800 bg-slate-900/90">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] text-slate-400 font-bold mr-1">Resolução:</span>
+                        {(
+                          [
+                            { id: 'max', label: 'Máxima / Auto' },
+                            { id: '4k', label: '4K (2160p)' },
+                            { id: 'fhd', label: 'Full HD (1080p)' },
+                            { id: 'hd', label: 'HD (720p)' },
+                            { id: 'sd', label: 'SD (480p)' },
+                          ] as const
+                        ).map((q) => (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => startCamera(cameraFacing, q.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              cameraQuality === q.id
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-750 hover:text-white border border-slate-700'
+                            }`}
+                          >
+                            {q.label}
+                          </button>
+                        ))}
                       </div>
-                    )}
 
-                    {/* Snapshot Trigger overlay */}
-                    {cameraActive && (
                       <button
                         type="button"
-                        onClick={takeCameraSnapshot}
-                        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl active:scale-95 transition-all"
+                        onClick={() => setIsCameraMirrored((prev) => !prev)}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                          isCameraMirrored
+                            ? 'bg-blue-600 border-blue-400 text-white shadow-xs'
+                            : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-750 hover:text-white'
+                        }`}
+                        title="Inverte ou desespelha a imagem da câmera horizontalmente"
                       >
-                        <Camera className="w-4 h-4" />
-                        Capturar Foto de Teste
+                        <FlipHorizontal className="w-3.5 h-3.5" />
+                        <span>{isCameraMirrored ? 'Espelhado (Ativo)' : 'Inverter / Espelhar'}</span>
                       </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Captured Photo Preview */}
-                {capturedPhotoUrl && (
-                  <div className="mt-3 p-3 rounded-xl border border-slate-700 bg-slate-900/90 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={capturedPhotoUrl}
-                        alt="Foto capturada"
-                        className="w-14 h-14 object-cover rounded-lg border border-slate-700"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-slate-200">Foto de Alta Resolução Gravada</span>
-                        <p className="text-[10px] text-emerald-400">Sensor nítido, balanço de branco e foco aprovados</p>
-                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setCapturedPhotoUrl(null)}
-                      className="text-xs text-slate-400 hover:text-rose-400"
-                    >
-                      Descartar
-                    </button>
+
+                    {cameraError ? (
+                      <div className="p-8 rounded-xl border border-rose-800/60 bg-rose-950/20 text-rose-300 text-center text-xs">
+                        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-rose-400" />
+                        {cameraError}
+                        <div className="mt-3">
+                          <button
+                            onClick={() => startCamera(cameraFacing)}
+                            className="px-4 py-2 rounded-md bg-rose-800 text-white hover:bg-rose-700 text-xs font-bold cursor-pointer"
+                          >
+                            Tentar novamente
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-[48vh] max-h-[460px] rounded-2xl overflow-hidden border-2 border-slate-700 bg-black flex items-center justify-center shadow-2xl">
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className={`w-full h-full object-contain transition-transform ${isCameraMirrored ? 'scale-x-[-1]' : ''}`}
+                        />
+
+                        {!cameraActive && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-slate-400 text-xs p-4 text-center">
+                            <Camera className="w-10 h-10 mb-2 text-slate-500 animate-pulse" />
+                            Iniciando sensor de câmera em resolução nativa...
+                          </div>
+                        )}
+
+                        {/* Snapshot Trigger overlay */}
+                        {cameraActive && (
+                          <button
+                            type="button"
+                            onClick={takeCameraSnapshot}
+                            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-6 py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl active:scale-95 transition-all cursor-pointer border-2 border-emerald-300/30"
+                          >
+                            <Camera className="w-4 h-4" />
+                            <span>Capturar Foto para Inspecionar Manchas</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Fast Checklist Actions */}
               <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-                <span className="text-xs text-slate-400">Gravar ({cameraFacing === 'user' ? 'Frontal' : 'Traseira'}):</span>
-                <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">
+                  Resultado ({cameraFacing === 'user' ? 'Câmera Frontal' : 'Câmera Traseira'}):
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => {
                       const key = cameraFacing === 'user' ? 'front_camera' : 'rear_camera';
-                      onUpdateChecklist(key, 'sim', 'Foco, sensor e nitidez testados em alta resolução 100% OK');
+                      onUpdateChecklist(key, 'sim', 'Foco, sensor e nitidez testados em alta resolução 100% OK sem manchas');
                       stopCamera();
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer active:scale-95"
                   >
-                    SIM (Aprovada)
+                    SIM: Sem Manchas (Aprovada)
                   </button>
                   <button
                     onClick={() => {
                       const key = cameraFacing === 'user' ? 'front_camera' : 'rear_camera';
-                      onUpdateChecklist(key, 'com_detalhes', 'Manchas, poeira interna ou foco oscilando');
+                      onUpdateChecklist(key, 'com_detalhes', 'Foto apresenta manchas, poeira interna ou riscos no sensor/lente');
                       stopCamera();
                       onClose();
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white"
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer active:scale-95"
                   >
-                    C/ DETALHES
+                    C/ DETALHES: Manchas / Poeira
                   </button>
                   <button
                     onClick={() => {
                       const key = cameraFacing === 'user' ? 'front_camera' : 'rear_camera';
-                      onUpdateChecklist(key, 'nao', 'Câmera não abre / Tela preta');
+                      onUpdateChecklist(key, 'nao', 'Câmera não abre / Sensor danificado');
                       stopCamera();
                       onClose();
                     }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer active:scale-95"
                   >
                     NÃO FUNCIONA
                   </button>

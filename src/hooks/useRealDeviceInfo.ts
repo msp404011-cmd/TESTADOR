@@ -1,5 +1,19 @@
 import { useState, useEffect } from 'react';
 
+export interface DeviceStorageDetails {
+  isSupported: boolean;
+  internalRomMessage: string;
+  browserQuotaLabel: string;
+  totalText: string;
+  usedText: string;
+  freeText: string;
+  usedPercentText: string;
+  usedPercentNumber: number;
+  isPersisted: boolean | null;
+  quotaBytes: number | null;
+  usageBytes: number | null;
+}
+
 export interface RealDeviceInfo {
   brand: string;
   model: string;
@@ -10,6 +24,7 @@ export interface RealDeviceInfo {
   storageText: string;
   storageUsagePercent: number | null;
   storageAvailableText: string;
+  storageDetails: DeviceStorageDetails;
   sdCardInserted: boolean;
   sdCardBrand: string;
   sdCardCapacity: string;
@@ -32,6 +47,18 @@ export interface RealDeviceInfo {
   formFactor: 'mobile' | 'tablet' | 'desktop';
   deviceVisual: 'android-punchhole' | 'iphone-island' | 'iphone-notch' | 'generic-phone';
   isLoaded: boolean;
+}
+
+export function formatStorageBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || isNaN(bytes) || bytes < 0) {
+    return 'Não disponível';
+  }
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const val = bytes / Math.pow(k, i);
+  return `${val < 10 ? val.toFixed(2) : val.toFixed(1)} ${sizes[i]}`;
 }
 
 export function saveRomStorageOverride(capacityGb: number) {
@@ -62,9 +89,22 @@ export function useRealDeviceInfo(): RealDeviceInfo {
     osName: 'Sistema',
     osVersion: '',
     ramText: 'Detectando...',
-    storageText: '128 GB',
-    storageUsagePercent: 45,
-    storageAvailableText: '70 GB livres',
+    storageText: 'Calculando...',
+    storageUsagePercent: 0,
+    storageAvailableText: 'Calculando...',
+    storageDetails: {
+      isSupported: false,
+      internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
+      browserQuotaLabel: 'Armazenamento disponível para o navegador',
+      totalText: 'Calculando...',
+      usedText: 'Calculando...',
+      freeText: 'Calculando...',
+      usedPercentText: '0%',
+      usedPercentNumber: 0,
+      isPersisted: null,
+      quotaBytes: null,
+      usageBytes: null,
+    },
     sdCardInserted: false,
     sdCardBrand: 'Não detectada',
     sdCardCapacity: '64 GB',
@@ -243,83 +283,57 @@ export function useRealDeviceInfo(): RealDeviceInfo {
       const formFactor: RealDeviceInfo['formFactor'] =
         /ipad|tablet/i.test(ua) ? 'tablet' : /mobile/i.test(ua) ? 'mobile' : 'desktop';
 
-      // 5. AUTOMATIC REAL INTERNAL STORAGE & EXACT FREE SPACE (PC & Mobile)
-      let storageText = formFactor === 'desktop' ? '512 GB' : '128 GB';
-      let storageUsagePercent: number | null = 40;
-      let storageAvailableText = 'Calculando...';
-      let hasEstimated = false;
+      // 5. AUTOMATIC REAL BROWSER STORAGE ESTIMATION (navigator.storage.estimate & Web APIs)
+      let storageDetails: DeviceStorageDetails = {
+        isSupported: false,
+        internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
+        browserQuotaLabel: 'Armazenamento disponível para o navegador',
+        totalText: 'Não disponível',
+        usedText: 'Não disponível',
+        freeText: 'Não disponível',
+        usedPercentText: 'Não disponível',
+        usedPercentNumber: 0,
+        isPersisted: null,
+        quotaBytes: null,
+        usageBytes: null,
+      };
 
-      const STANDARD_TIERS = formFactor === 'desktop' 
-        ? [128, 256, 512, 1024, 2048]
-        : [16, 32, 64, 128, 256, 512, 1024];
-
-      if (navigator.storage && navigator.storage.estimate) {
+      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.estimate === 'function') {
         try {
           const est = await navigator.storage.estimate();
+          const isPersisted = typeof navigator.storage.persisted === 'function'
+            ? await navigator.storage.persisted().catch(() => null)
+            : null;
+
           if (est.quota !== undefined && est.quota > 0) {
-            const rawQuotaGB = est.quota / (1024 * 1024 * 1024);
+            const quota = est.quota;
+            const usage = typeof est.usage === 'number' && est.usage >= 0 ? est.usage : 0;
+            const free = Math.max(0, quota - usage);
+            const usedPct = (usage / quota) * 100;
+            const usedPctText = usedPct === 0 ? '0%' : usedPct < 0.1 ? '< 0.1%' : `${usedPct.toFixed(1)}%`;
 
-            if (rawQuotaGB >= 1.5) {
-              // In Chromium, quota = total_disk_space * 0.6
-              const estimatedTotal = rawQuotaGB / 0.6;
-              let closestTier = 128;
-              let minDiff = Infinity;
-
-              for (const tier of STANDARD_TIERS) {
-                const diff = Math.abs(tier - estimatedTotal);
-                if (diff < minDiff) {
-                  minDiff = diff;
-                  closestTier = tier;
-                }
-              }
-
-              // Exact Free Space formatting with 1 decimal place or rounded
-              const freeSpaceNum = Number(rawQuotaGB.toFixed(1));
-              const freeSpaceDisplay = freeSpaceNum >= 10 ? `${Math.round(freeSpaceNum)} GB livres` : `${freeSpaceNum} GB livres`;
-              const usedPercent = Math.min(98, Math.max(2, Math.round(((closestTier - freeSpaceNum) / closestTier) * 100)));
-
-              storageText = closestTier >= 1024 ? '1 TB (1024 GB)' : `${closestTier} GB`;
-              storageAvailableText = freeSpaceDisplay;
-              storageUsagePercent = usedPercent;
-              hasEstimated = true;
-            }
+            storageDetails = {
+              isSupported: true,
+              internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
+              browserQuotaLabel: 'Armazenamento disponível para o navegador',
+              totalText: formatStorageBytes(quota),
+              usedText: formatStorageBytes(usage),
+              freeText: formatStorageBytes(free),
+              usedPercentText: usedPctText,
+              usedPercentNumber: Math.max(0.1, usedPct),
+              isPersisted,
+              quotaBytes: quota,
+              usageBytes: usage,
+            };
           }
         } catch {
           // ignore
         }
       }
 
-      // Automatic Fallback if browser blocked quota API
-      if (!hasEstimated) {
-        const ramNum = typeof navAny.deviceMemory === 'number' ? navAny.deviceMemory : 4;
-        let deducedTier = 128;
-
-        if (formFactor === 'desktop') {
-          deducedTier = ramNum >= 16 ? 1024 : ramNum >= 8 ? 512 : 256;
-        } else {
-          const modelLower = (model + ' ' + friendlyModel + ' ' + ua).toLowerCase();
-          if (modelLower.includes('ultra') || modelLower.includes('pro max') || modelLower.includes('fold') || modelLower.includes('plus')) {
-            deducedTier = 256;
-          } else if (brand === 'Apple' || osName === 'iOS') {
-            deducedTier = 128;
-          } else if (ramNum >= 8) {
-            deducedTier = 256;
-          } else if (ramNum >= 6) {
-            deducedTier = 128;
-          } else if (ramNum === 4) {
-            deducedTier = 128;
-          } else if (ramNum <= 3) {
-            deducedTier = 64;
-          }
-        }
-
-        const freeGB = Math.round(deducedTier * 0.62);
-        const usedPercent = Math.round(((deducedTier - freeGB) / deducedTier) * 100);
-
-        storageText = deducedTier >= 1024 ? '1 TB (1024 GB)' : `${deducedTier} GB`;
-        storageUsagePercent = usedPercent;
-        storageAvailableText = `${freeGB} GB livres`;
-      }
+      const storageText = storageDetails.totalText;
+      const storageAvailableText = storageDetails.freeText !== 'Não disponível' ? `${storageDetails.freeText} livres` : 'Não disponível';
+      const storageUsagePercent = storageDetails.usedPercentNumber;
 
       // 5.1 SD CARD DETECTION FROM SYSTEM STORAGE & INSPECTOR
       let sdCardInserted = false;
@@ -494,6 +508,7 @@ export function useRealDeviceInfo(): RealDeviceInfo {
           storageText,
           storageUsagePercent,
           storageAvailableText,
+          storageDetails,
           sdCardInserted,
           sdCardBrand,
           sdCardCapacity,

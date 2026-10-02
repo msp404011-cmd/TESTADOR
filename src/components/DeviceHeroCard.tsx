@@ -56,7 +56,6 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
               <span>
                 <strong>ROM (Interna):</strong>{' '}
                 <span className="text-amber-300 font-bold">{deviceInfo.storageText}</span>
-                <span className="text-slate-400 text-[10px] ml-1">({deviceInfo.storageAvailableText})</span>
               </span>
             </div>
 
@@ -147,32 +146,23 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
         <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-semibold text-slate-400">
-              {deviceInfo.formFactor === 'desktop' ? 'Armazenamento (SSD/HD)' : 'Memória ROM (Interna)'}
+              {deviceInfo.formFactor === 'desktop' ? 'Armazenamento Total' : 'Memória ROM (Capacidade)'}
             </span>
             <HardDrive className="w-4 h-4 text-amber-400" />
           </div>
 
-          <div className="flex items-baseline justify-between mb-1.5">
-            <span className="text-lg sm:text-xl font-black text-amber-300">
+          <div className="my-1.5 flex items-baseline justify-between">
+            <span className="text-xl sm:text-2xl font-black text-amber-300">
               {deviceInfo.storageText}
             </span>
-            <span className="text-[10px] font-medium text-emerald-400 truncate max-w-[105px]">
-              {deviceInfo.storageAvailableText}
+            <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30">
+              Capacidade Total
             </span>
           </div>
 
-          {/* Storage Progress Bar */}
-          <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden mb-2">
-            <div
-              className="h-full rounded-full bg-linear-to-r from-amber-500 to-emerald-500 transition-all duration-500"
-              style={{ width: `${deviceInfo.storageUsagePercent || 38}%` }}
-            />
-          </div>
-
-          {/* Real automatic usage indicator */}
           <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-            <span>Uso do sistema:</span>
-            <span className="font-mono font-bold text-slate-300">{deviceInfo.storageUsagePercent || 38}% ocupado</span>
+            <span>Identificação:</span>
+            <span className="font-bold text-emerald-400">✓ Reconhecido</span>
           </div>
         </div>
       </div>
