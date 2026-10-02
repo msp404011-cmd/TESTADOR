@@ -50,21 +50,6 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
               <span><strong>RAM:</strong> {deviceInfo.ramText}</span>
             </div>
 
-            {/* ROM (Memória Interna) Badge */}
-            <div className="flex items-center gap-1.5 truncate">
-              <span className="text-amber-400">💽</span>
-              <span className="truncate">
-                <strong>ROM (Interna):</strong>{' '}
-                {deviceInfo.isRomPermissionBlocked ? (
-                  <span className="text-amber-200/80 text-[11px] font-semibold">
-                    O navegador/sistema não permite ler a memória real
-                  </span>
-                ) : (
-                  <span className="text-amber-300 font-bold">{deviceInfo.storageText}</span>
-                )}
-              </span>
-            </div>
-
             {/* Cartão SD Badge */}
             <div className="flex items-center gap-1.5 truncate">
               <span className="text-cyan-400">💳</span>
@@ -85,10 +70,10 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
         </div>
       </div>
 
-      {/* Quick Metrics Bar: Battery & ROM (Internal Storage) */}
-      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-800/80">
+      {/* Quick Metrics Bar: Battery & MicroSD */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-800/80">
         {/* Battery Widget */}
-        <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
+        <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between min-h-[105px]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-semibold text-slate-400">Bateria</span>
             <div className="flex items-center gap-1.5">
@@ -148,80 +133,40 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
           </div>
         </div>
 
-        {/* ROM / Memória Interna Widget */}
-        <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between min-h-[105px]">
+        {/* MicroSD Card Widget */}
+        <div className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between min-h-[105px] ${
+          deviceInfo.sdCardInserted
+            ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-200'
+            : 'bg-slate-950/80 border-slate-800 text-slate-400'
+        }`}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-semibold text-slate-400">
-              {deviceInfo.formFactor === 'desktop' ? 'Armazenamento Total' : 'Memória ROM (Capacidade Real)'}
+            <span className="text-[11px] font-semibold text-slate-400">Cartão MicroSD</span>
+            <CreditCard className={`w-4 h-4 ${deviceInfo.sdCardInserted ? 'text-cyan-400' : 'text-slate-500'}`} />
+          </div>
+
+          <div className="my-1">
+            <span className="text-xs font-bold text-white block truncate">
+              {deviceInfo.sdCardInserted
+                ? `${deviceInfo.sdCardBrand} (${deviceInfo.sdCardCapacity})`
+                : 'Cartão MicroSD (Memória Externa)'}
             </span>
-            <HardDrive className="w-4 h-4 text-amber-400 shrink-0 ml-1" />
+            <span className="text-[10px] text-slate-400 block truncate mt-0.5">
+              {deviceInfo.sdCardInserted
+                ? deviceInfo.sdCardDetails
+                : 'Nenhum cartão inserido ou teste pendente'}
+            </span>
           </div>
 
-          {deviceInfo.isRomPermissionBlocked ? (
-            <div className="my-1 space-y-1">
-              <p className="text-xs text-amber-200 font-medium leading-snug">
-                O navegador / sistema não permite mostrar o tamanho real do celular.
-              </p>
-              <span className="inline-block text-[9px] font-bold text-amber-400/90 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">
-                🔒 Leitura Bloqueada pelo Navegador
-              </span>
-            </div>
-          ) : (
-            <div className="my-1.5 flex items-baseline justify-between">
-              <span className="text-xl sm:text-2xl font-black text-amber-300 truncate">
-                {deviceInfo.storageText}
-              </span>
-              <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30 shrink-0 ml-1">
-                Tamanho Real
-              </span>
-            </div>
-          )}
-
-          <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-            <span>Identificação:</span>
-            {deviceInfo.isRomPermissionBlocked ? (
-              <span className="font-bold text-amber-400">Bloqueado pelo Navegador</span>
-            ) : (
-              <span className="font-bold text-emerald-400">✓ Tamanho Real</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* DEDICATED SPACE: Cartão de Memória MicroSD (Marca + Tamanho) */}
-      <div className={`p-3.5 rounded-2xl border transition-all ${
-        deviceInfo.sdCardInserted
-          ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-200'
-          : 'bg-slate-950/60 border-slate-800 text-slate-400'
-      }`}>
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <div className={`p-1.5 rounded-lg ${
-              deviceInfo.sdCardInserted ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-800 text-slate-500'
+          <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
+            <span>Status:</span>
+            <span className={`font-bold px-2 py-0.5 rounded-full border ${
+              deviceInfo.sdCardInserted
+                ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                : 'bg-slate-900 text-slate-400 border-slate-700'
             }`}>
-              <CreditCard className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-xs font-bold text-white block">
-                {deviceInfo.sdCardInserted
-                  ? `Cartão MicroSD: ${deviceInfo.sdCardBrand} (${deviceInfo.sdCardCapacity})`
-                  : 'Cartão MicroSD (Memória Externa)'}
-              </span>
-              <span className="text-[11px] text-slate-400 block">
-                {deviceInfo.sdCardInserted
-                  ? deviceInfo.sdCardDetails
-                  : 'Nenhum cartão inserido ou teste pendente'}
-              </span>
-            </div>
+              {deviceInfo.sdCardInserted ? '✓ Identificado' : 'Sem Cartão'}
+            </span>
           </div>
-
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-            deviceInfo.sdCardInserted
-              ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-              : 'bg-slate-900 text-slate-400 border-slate-700'
-          }`}>
-            {deviceInfo.sdCardInserted ? '✓ Identificado' : 'Sem Cartão'}
-          </span>
         </div>
       </div>
     </div>

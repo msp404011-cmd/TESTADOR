@@ -118,7 +118,6 @@ export const TestResultsView: React.FC<TestResultsViewProps> = ({
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-300">
             <span>🤖 {deviceInfo.osName} {deviceInfo.osVersion}</span>
             <span>💾 {deviceInfo.ramText}</span>
-            <span>💽 {deviceInfo.storageText}</span>
             <span className="truncate">📱 {deviceInfo.screenText}</span>
           </div>
         </div>

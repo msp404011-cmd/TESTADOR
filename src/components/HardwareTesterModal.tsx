@@ -2088,33 +2088,17 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
             </div>
           )}
 
-          {/* TAB: MEMÓRIA INTERNA & CARTÃO SD REAL */}
+          {/* TAB: CARTÃO SD REAL */}
           {currentTab === 'sd_card' && (
             <div className="flex flex-col h-full justify-between max-w-2xl mx-auto py-2 space-y-4">
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="text-base font-bold text-slate-100">Memória Interna & Leitor de Cartão MicroSD</h3>
+                    <h3 className="text-base font-bold text-slate-100">Leitor de Cartão MicroSD</h3>
                     <p className="text-xs text-slate-400">
                       Validação de leitura de arquivos, identificação de marca e capacidade do cartão.
                     </p>
                   </div>
-                </div>
-
-                {/* ROM Memory Banner */}
-                <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <HardDrive className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-white block">Memória ROM (Armazenamento Interno)</span>
-                      <span className="text-[11px] text-slate-400">{realDeviceInfo.storageAvailableText} de espaço livre</span>
-                    </div>
-                  </div>
-                  <span className="font-mono text-sm font-black text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                    {realDeviceInfo.storageText}
-                  </span>
                 </div>
 
                 {/* SD Card Inspector & Brand / Size Config */}

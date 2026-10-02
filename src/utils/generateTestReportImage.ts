@@ -151,7 +151,6 @@ export async function generateTestReportImage(
   const specsList = [
     deviceInfo?.osName ? `🤖 ${deviceInfo.osName} ${deviceInfo.osVersion || ''}`.trim() : '',
     deviceInfo?.ramText && deviceInfo.ramText !== 'Não disponível' ? `💾 ${deviceInfo.ramText}` : '',
-    deviceInfo?.storageText && deviceInfo.storageText !== 'Não disponível' ? `💽 ${deviceInfo.storageText}` : '',
     deviceInfo?.screenText && deviceInfo.screenText !== 'Não disponível' ? `📺 ${deviceInfo.screenText}` : '',
   ].filter(Boolean);
 
