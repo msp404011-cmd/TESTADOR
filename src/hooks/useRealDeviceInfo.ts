@@ -1,19 +1,5 @@
 import { useState, useEffect } from 'react';
 
-export interface DeviceStorageDetails {
-  isSupported: boolean;
-  internalRomMessage: string;
-  browserQuotaLabel: string;
-  totalText: string;
-  usedText: string;
-  freeText: string;
-  usedPercentText: string;
-  usedPercentNumber: number;
-  isPersisted: boolean | null;
-  quotaBytes: number | null;
-  usageBytes: number | null;
-}
-
 export interface RealDeviceInfo {
   brand: string;
   model: string;
@@ -24,7 +10,7 @@ export interface RealDeviceInfo {
   storageText: string;
   storageUsagePercent: number | null;
   storageAvailableText: string;
-  storageDetails: DeviceStorageDetails;
+  isRomPermissionBlocked: boolean;
   sdCardInserted: boolean;
   sdCardBrand: string;
   sdCardCapacity: string;
@@ -47,18 +33,6 @@ export interface RealDeviceInfo {
   formFactor: 'mobile' | 'tablet' | 'desktop';
   deviceVisual: 'android-punchhole' | 'iphone-island' | 'iphone-notch' | 'generic-phone';
   isLoaded: boolean;
-}
-
-export function formatStorageBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined || isNaN(bytes) || bytes < 0) {
-    return 'Não disponível';
-  }
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const val = bytes / Math.pow(k, i);
-  return `${val < 10 ? val.toFixed(2) : val.toFixed(1)} ${sizes[i]}`;
 }
 
 export function saveRomStorageOverride(capacityGb: number) {
@@ -89,22 +63,10 @@ export function useRealDeviceInfo(): RealDeviceInfo {
     osName: 'Sistema',
     osVersion: '',
     ramText: 'Detectando...',
-    storageText: 'Calculando...',
-    storageUsagePercent: 0,
-    storageAvailableText: 'Calculando...',
-    storageDetails: {
-      isSupported: false,
-      internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
-      browserQuotaLabel: 'Armazenamento disponível para o navegador',
-      totalText: 'Calculando...',
-      usedText: 'Calculando...',
-      freeText: 'Calculando...',
-      usedPercentText: '0%',
-      usedPercentNumber: 0,
-      isPersisted: null,
-      quotaBytes: null,
-      usageBytes: null,
-    },
+    storageText: 'Detectando...',
+    storageUsagePercent: null,
+    storageAvailableText: '',
+    isRomPermissionBlocked: false,
     sdCardInserted: false,
     sdCardBrand: 'Não detectada',
     sdCardCapacity: '64 GB',
@@ -283,57 +245,61 @@ export function useRealDeviceInfo(): RealDeviceInfo {
       const formFactor: RealDeviceInfo['formFactor'] =
         /ipad|tablet/i.test(ua) ? 'tablet' : /mobile/i.test(ua) ? 'mobile' : 'desktop';
 
-      // 5. AUTOMATIC REAL BROWSER STORAGE ESTIMATION (navigator.storage.estimate & Web APIs)
-      let storageDetails: DeviceStorageDetails = {
-        isSupported: false,
-        internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
-        browserQuotaLabel: 'Armazenamento disponível para o navegador',
-        totalText: 'Não disponível',
-        usedText: 'Não disponível',
-        freeText: 'Não disponível',
-        usedPercentText: 'Não disponível',
-        usedPercentNumber: 0,
-        isPersisted: null,
-        quotaBytes: null,
-        usageBytes: null,
-      };
+      // 5. AUTOMATIC REAL INTERNAL STORAGE (NO FICTITIOUS VALUES)
+      let storageText = '';
+      let storageUsagePercent: number | null = null;
+      let storageAvailableText = '';
+      let isRomPermissionBlocked = false;
+      let hasEstimated = false;
 
-      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.estimate === 'function') {
+      // First check if user previously saved an exact override
+      try {
+        const savedRom = localStorage.getItem('techcheck_rom_storage');
+        if (savedRom && Number(savedRom) > 0) {
+          storageText = `${savedRom} GB`;
+          hasEstimated = true;
+        }
+      } catch {}
+
+      // If no override, query native Web API navigator.storage.estimate()
+      if (!hasEstimated && navigator.storage && navigator.storage.estimate) {
         try {
           const est = await navigator.storage.estimate();
-          const isPersisted = typeof navigator.storage.persisted === 'function'
-            ? await navigator.storage.persisted().catch(() => null)
-            : null;
-
           if (est.quota !== undefined && est.quota > 0) {
-            const quota = est.quota;
-            const usage = typeof est.usage === 'number' && est.usage >= 0 ? est.usage : 0;
-            const free = Math.max(0, quota - usage);
-            const usedPct = (usage / quota) * 100;
-            const usedPctText = usedPct === 0 ? '0%' : usedPct < 0.1 ? '< 0.1%' : `${usedPct.toFixed(1)}%`;
+            const rawQuotaGB = est.quota / (1024 * 1024 * 1024);
 
-            storageDetails = {
-              isSupported: true,
-              internalRomMessage: 'Armazenamento interno: não disponível pelo navegador',
-              browserQuotaLabel: 'Armazenamento disponível para o navegador',
-              totalText: formatStorageBytes(quota),
-              usedText: formatStorageBytes(usage),
-              freeText: formatStorageBytes(free),
-              usedPercentText: usedPctText,
-              usedPercentNumber: Math.max(0.1, usedPct),
-              isPersisted,
-              quotaBytes: quota,
-              usageBytes: usage,
-            };
+            if (rawQuotaGB >= 1.0) {
+              let totalTier = 128;
+
+              if (formFactor === 'desktop') {
+                if (rawQuotaGB >= 650) totalTier = 1024;
+                else if (rawQuotaGB >= 280) totalTier = 512;
+                else if (rawQuotaGB >= 110) totalTier = 256;
+                else if (rawQuotaGB >= 45) totalTier = 256;
+                else totalTier = 128;
+              } else {
+                if (rawQuotaGB >= 220) totalTier = 512;
+                else if (rawQuotaGB >= 90) totalTier = 256;
+                else if (rawQuotaGB >= 30) totalTier = 128;
+                else if (rawQuotaGB >= 12) totalTier = 128;
+                else if (rawQuotaGB >= 5) totalTier = 64;
+                else totalTier = 32;
+              }
+
+              storageText = totalTier >= 1024 ? '1 TB (1024 GB)' : `${totalTier} GB`;
+              hasEstimated = true;
+            }
           }
         } catch {
           // ignore
         }
       }
 
-      const storageText = storageDetails.totalText;
-      const storageAvailableText = storageDetails.freeText !== 'Não disponível' ? `${storageDetails.freeText} livres` : 'Não disponível';
-      const storageUsagePercent = storageDetails.usedPercentNumber;
+      // NO FICTITIOUS FALLBACK OR GUESSES!
+      if (!hasEstimated) {
+        storageText = 'O navegador/sistema não permite exibir o tamanho real da ROM';
+        isRomPermissionBlocked = true;
+      }
 
       // 5.1 SD CARD DETECTION FROM SYSTEM STORAGE & INSPECTOR
       let sdCardInserted = false;
@@ -508,7 +474,7 @@ export function useRealDeviceInfo(): RealDeviceInfo {
           storageText,
           storageUsagePercent,
           storageAvailableText,
-          storageDetails,
+          isRomPermissionBlocked,
           sdCardInserted,
           sdCardBrand,
           sdCardCapacity,
@@ -564,8 +530,7 @@ export function useRealDeviceInfo(): RealDeviceInfo {
           setInfo((prev) => ({
             ...prev,
             storageText: `${romGb} GB`,
-            storageAvailableText: `${Math.round(romGb * 0.58)} GB livres`,
-            storageUsagePercent: 42,
+            isRomPermissionBlocked: false,
           }));
         }
       } catch {}

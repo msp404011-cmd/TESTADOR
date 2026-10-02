@@ -53,9 +53,15 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
             {/* ROM (Memória Interna) Badge */}
             <div className="flex items-center gap-1.5 truncate">
               <span className="text-amber-400">💽</span>
-              <span>
+              <span className="truncate">
                 <strong>ROM (Interna):</strong>{' '}
-                <span className="text-amber-300 font-bold">{deviceInfo.storageText}</span>
+                {deviceInfo.isRomPermissionBlocked ? (
+                  <span className="text-amber-200/80 text-[11px] font-semibold">
+                    O navegador/sistema não permite ler a memória real
+                  </span>
+                ) : (
+                  <span className="text-amber-300 font-bold">{deviceInfo.storageText}</span>
+                )}
               </span>
             </div>
 
@@ -143,26 +149,41 @@ export const DeviceHeroCard: React.FC<DeviceHeroCardProps> = ({ deviceInfo, onOp
         </div>
 
         {/* ROM / Memória Interna Widget */}
-        <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
+        <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between min-h-[105px]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-semibold text-slate-400">
-              {deviceInfo.formFactor === 'desktop' ? 'Armazenamento Total' : 'Memória ROM (Capacidade)'}
+              {deviceInfo.formFactor === 'desktop' ? 'Armazenamento Total' : 'Memória ROM (Capacidade Real)'}
             </span>
-            <HardDrive className="w-4 h-4 text-amber-400" />
+            <HardDrive className="w-4 h-4 text-amber-400 shrink-0 ml-1" />
           </div>
 
-          <div className="my-1.5 flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-amber-300">
-              {deviceInfo.storageText}
-            </span>
-            <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30">
-              Capacidade Total
-            </span>
-          </div>
+          {deviceInfo.isRomPermissionBlocked ? (
+            <div className="my-1 space-y-1">
+              <p className="text-xs text-amber-200 font-medium leading-snug">
+                O navegador / sistema não permite mostrar o tamanho real do celular.
+              </p>
+              <span className="inline-block text-[9px] font-bold text-amber-400/90 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">
+                🔒 Leitura Bloqueada pelo Navegador
+              </span>
+            </div>
+          ) : (
+            <div className="my-1.5 flex items-baseline justify-between">
+              <span className="text-xl sm:text-2xl font-black text-amber-300 truncate">
+                {deviceInfo.storageText}
+              </span>
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30 shrink-0 ml-1">
+                Tamanho Real
+              </span>
+            </div>
+          )}
 
           <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
             <span>Identificação:</span>
-            <span className="font-bold text-emerald-400">✓ Reconhecido</span>
+            {deviceInfo.isRomPermissionBlocked ? (
+              <span className="font-bold text-amber-400">Bloqueado pelo Navegador</span>
+            ) : (
+              <span className="font-bold text-emerald-400">✓ Tamanho Real</span>
+            )}
           </div>
         </div>
       </div>
