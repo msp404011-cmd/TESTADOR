@@ -218,6 +218,19 @@ export const CHECKLIST_ITEMS: ChecklistItemConfig[] = [
       { id: 'nao_area', label: 'NÃO DÁ ÁREA', shortLabel: 'NÃO DÁ ÁREA', tone: 'danger', description: 'Sem serviço / Só emergência / Sem sinal' },
     ],
   },
+  {
+    key: 'charging_port',
+    title: 'Conector de Carga / Carregamento',
+    subtitle: 'Entrada de voltagem e amperagem em tempo real',
+    iconName: 'Zap',
+    testType: 'charging',
+    quickNotes: ['Conector com folga', 'Carga lenta', 'Não reconhece carregador', 'Aquecendo conector'],
+    options: [
+      { id: 'sim', label: 'CARREGA NORMAL (SIM)', shortLabel: 'CARREGA (OK)', tone: 'success', description: 'Reconhece carregador e corrente flui perfeitamente' },
+      { id: 'com_dificuldade', label: 'CARGA LENTA / MAU CONTATO', shortLabel: 'CARGA LENTA', tone: 'warning', description: 'Cabo precisa de jeitinho ou corrente oscilando' },
+      { id: 'nao', label: 'NÃO CARREGA', shortLabel: 'NÃO CARREGA', tone: 'danger', description: 'Conector danificado / Não passa corrente' },
+    ],
+  },
 ];
 
 export const createDefaultChecklist = (): ChecklistRecord => {
@@ -239,6 +252,7 @@ export const createDefaultChecklist = (): ChecklistRecord => {
     chip_1: { status: 'funciona', observation: '' },
     chip_2: { status: 'nao_possui', observation: '' },
     signal_area: { status: 'sim_area', observation: '' },
+    charging_port: { status: 'sim', observation: '' },
   };
 };
 

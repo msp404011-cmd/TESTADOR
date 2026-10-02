@@ -15,7 +15,8 @@ export type ChecklistItemKey =
   | 'sd_card'
   | 'chip_1'
   | 'chip_2'
-  | 'signal_area';
+  | 'signal_area'
+  | 'charging_port';
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -50,7 +51,8 @@ export interface ChecklistItemConfig {
     | 'biometrics'
     | 'sd_card'
     | 'sim_manager'
-    | 'signal_area';
+    | 'signal_area'
+    | 'charging';
 }
 
 export interface ChecklistItemState {

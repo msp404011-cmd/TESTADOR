@@ -10,30 +10,33 @@ import {
   ChecklistItemState,
   ChecklistRecord,
 } from './types/order';
-import {
-  createNewOrder,
-  buildWhatsAppMessage,
-} from './utils/orderStorage';
-import { createEmptyChecklist } from './data/initialChecklist';
+import { createNewOrder } from './utils/orderStorage';
+import { createEmptyChecklist, CHECKLIST_ITEMS } from './data/initialChecklist';
 import { Header } from './components/Header';
-import { ChecklistSection } from './components/ChecklistSection';
+import { DeviceHeroCard } from './components/DeviceHeroCard';
+import { CategoryTestCards, CATEGORY_CARDS, CategoryCardConfig } from './components/CategoryTestCards';
+import { TestSelectionView } from './components/TestSelectionView';
+import { GuidedTestRunner } from './components/GuidedTestRunner';
+import { TestResultsView } from './components/TestResultsView';
+import { BottomNavBar, MainNavTab } from './components/BottomNavBar';
 import { HardwareTesterModal } from './components/HardwareTesterModal';
 import { FullscreenTouchTester } from './components/FullscreenTouchTester';
 import { TestImagePreviewModal } from './components/TestImagePreviewModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { PWAInstallButton } from './components/PWAInstallButton';
+import { useRealDeviceInfo } from './hooks/useRealDeviceInfo';
 import { generateTestReportImage, calculateReportStats } from './utils/generateTestReportImage';
 import {
   CheckCircle,
-  Image as ImageIcon,
-  Share2,
-  Sparkles,
+  Play,
+  ChevronRight,
 } from 'lucide-react';
 
 export default function App() {
-  // Always starts completely fresh and zeroed whenever the link is opened
   const [currentOrder, setCurrentOrder] = useState<ServiceOrder>(() => createNewOrder());
+  const [activeScreen, setActiveScreen] = useState<MainNavTab | 'runner'>('home');
+  const [runnerCategories, setRunnerCategories] = useState<CategoryCardConfig[]>(CATEGORY_CARDS);
 
+  // Hardware modals
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   const [isFullscreenTouchOpen, setIsFullscreenTouchOpen] = useState(false);
   const [testerKey, setTesterKey] = useState<ChecklistItemKey | null>(null);
@@ -43,6 +46,9 @@ export default function App() {
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [reportImageDataUrl, setReportImageDataUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  // Real smartphone hardware detection (Brand, Model, OS, RAM, Storage, Screen Resolution, Battery)
+  const realDeviceInfo = useRealDeviceInfo();
 
   const toastTimerRef = useRef<number | null>(null);
 
@@ -54,7 +60,10 @@ export default function App() {
     }, 2500);
   };
 
-  const handleUpdateChecklistItem = (key: ChecklistItemKey, partial: Partial<ChecklistItemState>) => {
+  const handleUpdateChecklistItem = (
+    key: ChecklistItemKey,
+    partial: Partial<ChecklistItemState>
+  ) => {
     const existing = currentOrder.checklist[key] || { status: '', observation: '' };
     const updatedChecklist: ChecklistRecord = {
       ...currentOrder.checklist,
@@ -70,36 +79,68 @@ export default function App() {
     });
   };
 
-  const handleBulkChecklistUpdate = (newChecklist: ChecklistRecord) => {
-    setCurrentOrder({
-      ...currentOrder,
-      checklist: newChecklist,
-      updatedAt: new Date().toISOString(),
-    });
-    showToast('Checklist atualizado!');
-  };
-
   const handleResetTest = () => {
     const emptyChecklist = createEmptyChecklist();
     const fresh = createNewOrder();
     fresh.checklist = emptyChecklist;
     setCurrentOrder(fresh);
     setReportImageDataUrl(null);
-    showToast('Checklist zerado com sucesso!');
+    setActiveScreen('home');
+    showToast('Testes zerados para novo diagnóstico!');
   };
 
+  // WhatsApp formatted report using real detected device hardware specifications
   const handleShareWhatsApp = () => {
-    const text = buildWhatsAppMessage(currentOrder);
+    const stats = calculateReportStats(currentOrder.checklist);
+    const devTitle = [realDeviceInfo.brand !== 'Não disponível' ? realDeviceInfo.brand : '', realDeviceInfo.model !== 'Não disponível' ? realDeviceInfo.model : 'Smartphone'].filter(Boolean).join(' ');
+
+    let text = `*📋 LAUDO DE TESTE E DIAGNÓSTICO DO CELULAR*\n`;
+    text += `📱 *Aparelho:* ${devTitle}\n`;
+    text += `🤖 *Sistema:* ${realDeviceInfo.osName} ${realDeviceInfo.osVersion || ''}\n`;
+    text += `💾 *Memória RAM:* ${realDeviceInfo.ramText}\n`;
+    text += `💽 *Memória Interna:* ${realDeviceInfo.storageText} (${realDeviceInfo.storageAvailableText})\n`;
+    text += `📺 *Resolução da Tela:* ${realDeviceInfo.screenText}\n`;
+    if (realDeviceInfo.batteryPercent !== null) {
+      text += `🔋 *Bateria:* ${realDeviceInfo.batteryText}\n`;
+    }
+    text += `\n*── RESULTADO DOS TESTES DE HARDWARE ──*\n`;
+
+    CHECKLIST_ITEMS.forEach((item) => {
+      const state = currentOrder.checklist[item.key];
+      const status = state?.status || '';
+      let emoji = '⚪';
+      let statusText = 'Não testado';
+
+      if (status === 'sim' || status === 'funciona' || status === 'sim_area') {
+        emoji = '✅';
+        statusText = 'APROVADO / OK';
+      } else if (status === 'com_detalhes' || status === 'com_dificuldade' || status === 'mau_toque') {
+        emoji = '⚠️';
+        statusText = 'COM DETALHES';
+      } else if (status === 'nao' || status === 'nao_funciona' || status === 'nao_area') {
+        emoji = '❌';
+        statusText = 'NÃO FUNCIONA';
+      } else if (status === 'nao_possui') {
+        emoji = '➖';
+        statusText = 'NÃO POSSUI';
+      }
+
+      text += `${emoji} *${item.title}:* ${statusText}`;
+      if (state?.observation) {
+        text += ` _(${state.observation})_`;
+      }
+      text += `\n`;
+    });
+
+    text += `\n*RESUMO GERAL:* ${stats.approved} OK • ${stats.details} Atenção • ${stats.failed} Falhas`;
+
     navigator.clipboard.writeText(text).then(
       () => {
-        const rawPhone = currentOrder.customer.phone.replace(/\D/g, '');
-        if (rawPhone.length >= 10) {
-          const fullPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
-          showToast('Relatório copiado e abrindo WhatsApp...');
-          window.open(`https://api.whatsapp.com/send?phone=${fullPhone}&text=${encodeURIComponent(text)}`, '_blank');
-        } else {
-          showToast('Relatório copiado para colar no WhatsApp!');
-        }
+        showToast('Relatório copiado e abrindo WhatsApp...');
+        window.open(
+          `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`,
+          '_blank'
+        );
       },
       () => {
         showToast('Não foi possível copiar automaticamente.');
@@ -116,11 +157,19 @@ export default function App() {
     setIsTesterOpen(true);
   };
 
-  // Generate image and open preview modal first ("MAS ANTES PEDE PRA VER")
+  // Generate image and open preview modal first
   const handleGenerateAndPreviewImage = async () => {
     try {
       setIsGeneratingImage(true);
-      const dataUrl = await generateTestReportImage(currentOrder.checklist, currentOrder.device);
+      const dataUrl = await generateTestReportImage(currentOrder.checklist, {
+        brand: realDeviceInfo.brand !== 'Não disponível' ? realDeviceInfo.brand : '',
+        model: realDeviceInfo.model !== 'Não disponível' ? realDeviceInfo.model : '',
+        osName: realDeviceInfo.osName,
+        osVersion: realDeviceInfo.osVersion,
+        ramText: realDeviceInfo.ramText,
+        storageText: realDeviceInfo.storageText,
+        screenText: realDeviceInfo.screenText,
+      });
       setReportImageDataUrl(dataUrl);
       setIsImagePreviewOpen(true);
     } catch (err) {
@@ -132,10 +181,11 @@ export default function App() {
   };
 
   const stats = calculateReportStats(currentOrder.checklist);
+  const testedCount = stats.total - stats.untested;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-white">
-      {/* TOP BAR */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-blue-500 selection:text-white">
+      {/* TOP HEADER matching reference image */}
       <Header
         onResetTest={handleResetTest}
         onGenerateImage={handleGenerateAndPreviewImage}
@@ -144,72 +194,136 @@ export default function App() {
 
       {/* TOAST NOTIFICATION */}
       {notification && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-xl transition-all">
-          <CheckCircle className="w-4 h-4" />
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 text-white text-xs font-semibold shadow-2xl transition-all border border-emerald-400/40">
+          <CheckCircle className="w-4 h-4 shrink-0" />
           <span>{notification}</span>
         </div>
       )}
 
-      {/* MAIN VIEWPORT CONTAINER */}
-      <main className="no-print flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* CHECKLIST DE TESTES DO APARELHO */}
-        <ChecklistSection
-          checklist={currentOrder.checklist}
-          checklistType={currentOrder.checklistType}
-          onChangeChecklistType={(type) =>
-            setCurrentOrder({ ...currentOrder, checklistType: type })
-          }
-          onUpdateItem={handleUpdateChecklistItem}
-          onBulkUpdate={handleBulkChecklistUpdate}
-          onOpenTester={handleOpenTester}
-        />
+      {/* MAIN CONTAINER */}
+      <main className="no-print flex-1 max-w-xl w-full mx-auto p-4 sm:p-5 space-y-5 pb-24">
+        {/* SCREEN 1: INÍCIO / HOME (matching reference image Screen 1) */}
+        {activeScreen === 'home' && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Real Device Information Card with Mockup */}
+            <DeviceHeroCard
+              deviceInfo={realDeviceInfo}
+            />
 
-        {/* BOTTOM CALL TO ACTION: GERAR IMAGEM DO TESTE */}
-        <div className="p-6 rounded-2xl border-2 border-emerald-500/40 bg-emerald-950/20 text-center shadow-xl space-y-4">
-          <div className="max-w-xl mx-auto">
-            <h3 className="text-base font-bold text-slate-100 flex items-center justify-center gap-2">
-              <Sparkles className="w-5 h-5 text-emerald-400" />
-              Finalizar Testes e Gerar Comprovante
-            </h3>
-            <p className="text-xs text-slate-300 mt-1">
-              Gera uma imagem oficial em alta resolução com o laudo de todos os itens testados para salvar na galeria do aparelho celular ou enviar ao cliente.
-            </p>
+            {/* Primary Action Button: Iniciar teste completo matching reference image */}
+            <button
+              type="button"
+              onClick={() => {
+                setRunnerCategories(CATEGORY_CARDS);
+                setActiveScreen('runner');
+              }}
+              className="w-full p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold shadow-xl shadow-blue-950/60 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <Play className="w-5 h-5 fill-current" />
+                </div>
+                <div className="text-left">
+                  <span className="block text-sm sm:text-base font-extrabold leading-tight">
+                    Iniciar teste completo
+                  </span>
+                  <span className="block text-xs font-normal text-blue-100">
+                    Verifique todas as funções do aparelho
+                  </span>
+                </div>
+              </div>
+              <ChevronRight className="w-6 h-6 stroke-[2.5]" />
+            </button>
 
-            <div className="flex flex-wrap items-center justify-center gap-2 my-3 text-[11px] font-mono">
-              <span className="px-2.5 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                ✓ Aprovados: {stats.approved}
-              </span>
-              <span className="px-2.5 py-1 rounded bg-amber-950 text-amber-300 border border-amber-800">
-                ⚠ C/ Detalhes: {stats.details}
-              </span>
-              <span className="px-2.5 py-1 rounded bg-rose-950 text-rose-300 border border-rose-800">
-                ✕ Reprovados: {stats.failed}
-              </span>
+            {/* 3x3 Testes por categoria matching reference image */}
+            <CategoryTestCards
+              checklist={currentOrder.checklist}
+              onOpenTest={handleOpenTester}
+              batteryStatusText={realDeviceInfo.batteryText}
+            />
+
+            {/* Quick summary status footer */}
+            <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs">
+              <span className="text-slate-400">Progresso dos testes:</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-emerald-400 font-mono">
+                  {stats.approved} OK
+                </span>
+                {stats.details > 0 && (
+                  <span className="font-bold text-amber-400 font-mono">
+                    • {stats.details} Atenção
+                  </span>
+                )}
+                {stats.failed > 0 && (
+                  <span className="font-bold text-rose-400 font-mono">
+                    • {stats.failed} Falhas
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveScreen('results')}
+                  className="ml-2 font-bold text-blue-400 hover:underline cursor-pointer"
+                >
+                  Ver laudo
+                </button>
+              </div>
             </div>
           </div>
+        )}
 
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={handleGenerateAndPreviewImage}
-              disabled={isGeneratingImage}
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-sm shadow-xl shadow-emerald-950/60 transition-all cursor-pointer disabled:opacity-50"
-            >
-              <ImageIcon className="w-5 h-5" />
-              <span>{isGeneratingImage ? 'Gerando Imagem...' : 'Gerar Imagem do Laudo (Ver Antes de Salvar)'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleShareWhatsApp}
-              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-semibold text-xs border border-slate-700 transition-all"
-            >
-              <Share2 className="w-4 h-4 text-emerald-400" />
-              <span>Copiar Texto WhatsApp</span>
-            </button>
+        {/* SCREEN 2: SELECIONAR TESTES (matching reference image Screen 2) */}
+        {activeScreen === 'tests' && (
+          <div className="animate-fade-in">
+            <TestSelectionView
+              onBack={() => setActiveScreen('home')}
+              onStartSelected={(selected) => {
+                setRunnerCategories(selected);
+                setActiveScreen('runner');
+              }}
+            />
           </div>
-        </div>
+        )}
+
+        {/* SCREEN 3: EXECUÇÃO DO TESTE GUIADO (matching reference image Screen 3) */}
+        {activeScreen === 'runner' && (
+          <div className="animate-fade-in">
+            <GuidedTestRunner
+              checklist={currentOrder.checklist}
+              selectedCategories={runnerCategories}
+              onUpdateItem={(key, status, obs) => {
+                handleUpdateChecklistItem(key, { status, observation: obs || '' });
+                showToast('Status do teste gravado!');
+              }}
+              onOpenHardwareModal={handleOpenTester}
+              onOpenFullscreenTouch={() => setIsFullscreenTouchOpen(true)}
+              onComplete={() => setActiveScreen('results')}
+              onBack={() => setActiveScreen('home')}
+            />
+          </div>
+        )}
+
+        {/* SCREEN 4: RESULTADO DO TESTE (matching reference image Screen 4) */}
+        {activeScreen === 'results' && (
+          <div className="animate-fade-in">
+            <TestResultsView
+              checklist={currentOrder.checklist}
+              deviceInfo={realDeviceInfo}
+              onBack={() => setActiveScreen('home')}
+              onNewTest={handleResetTest}
+              onGenerateImage={handleGenerateAndPreviewImage}
+              onShareWhatsApp={handleShareWhatsApp}
+            />
+          </div>
+        )}
       </main>
+
+      {/* DOCKED BOTTOM NAVIGATION BAR matching mobile thumb ergonomics */}
+      <BottomNavBar
+        currentTab={activeScreen === 'runner' ? 'tests' : activeScreen}
+        onChangeTab={(tab) => setActiveScreen(tab)}
+        testedCount={testedCount}
+        totalCount={stats.total}
+      />
 
       {/* PREVIEW MODAL BEFORE SAVING IMAGE TO GALLERY */}
       <TestImagePreviewModal
@@ -225,7 +339,7 @@ export default function App() {
         activeTestKey={testerKey}
         onUpdateChecklist={(key, status, obs) => {
           handleUpdateChecklistItem(key, { status, observation: obs || '' });
-          showToast(`Item atualizado no checklist!`);
+          showToast('Item atualizado no checklist!');
         }}
         onOpenFullscreenTouch={() => {
           setIsTesterOpen(false);
@@ -242,7 +356,11 @@ export default function App() {
             status: result.status,
             observation: result.observation,
           });
-          showToast(`Teste de toque finalizado: ${result.status === 'sim' ? 'Aprovado 100%' : 'Com ressalvas'}`);
+          showToast(
+            `Teste de toque finalizado: ${
+              result.status === 'sim' ? 'Aprovado 100%' : 'Com ressalvas'
+            }`
+          );
         }}
       />
 

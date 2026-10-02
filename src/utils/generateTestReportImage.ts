@@ -61,7 +61,17 @@ export function calculateReportStats(checklist: ChecklistRecord): ReportSummaryS
 
 export async function generateTestReportImage(
   checklist: ChecklistRecord,
-  deviceInfo?: { brand?: string; model?: string; color?: string; imei?: string }
+  deviceInfo?: {
+    brand?: string;
+    model?: string;
+    osName?: string;
+    osVersion?: string;
+    ramText?: string;
+    storageText?: string;
+    screenText?: string;
+    color?: string;
+    imei?: string;
+  }
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -70,8 +80,8 @@ export async function generateTestReportImage(
   const width = 1200;
   const items = CHECKLIST_ITEMS;
   const rowHeight = 64;
-  const headerHeight = 320;
-  const footerHeight = 140;
+  const headerHeight = 350;
+  const footerHeight = 120;
   const height = headerHeight + Math.ceil(items.length / 2) * rowHeight + footerHeight;
 
   canvas.width = width;
@@ -89,9 +99,13 @@ export async function generateTestReportImage(
   ctx.lineWidth = 4;
   ctx.strokeRect(16, 16, width - 32, height - 32);
 
-  // Inner Glow Line
-  ctx.strokeStyle = '#10b981';
-  ctx.lineWidth = 2;
+  // Top Glow Accent
+  const lineGrad = ctx.createLinearGradient(32, 0, width - 32, 0);
+  lineGrad.addColorStop(0, '#2563eb');
+  lineGrad.addColorStop(0.5, '#10b981');
+  lineGrad.addColorStop(1, '#06b6d4');
+  ctx.strokeStyle = lineGrad;
+  ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(32, 28);
   ctx.lineTo(width - 32, 28);
@@ -100,11 +114,11 @@ export async function generateTestReportImage(
   // Header Title
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 36px system-ui, -apple-system, sans-serif';
-  ctx.fillText('LAUDO DE TESTE DO APARELHO', 50, 80);
+  ctx.fillText('DIAGNÓSTICO E TESTE DE CELULAR', 50, 78);
 
-  ctx.fillStyle = '#10b981';
-  ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
-  ctx.fillText('✓ CHECKLIST DE HARDWARE & SENSORES FINALIZADO', 50, 112);
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+  ctx.fillText('✓ LAUDO COMPLETO DE HARDWARE & COMPONENTES', 50, 108);
 
   // Date and Time
   const now = new Date();
@@ -119,18 +133,35 @@ export async function generateTestReportImage(
   });
 
   ctx.fillStyle = '#94a3b8';
-  ctx.font = '16px system-ui, -apple-system, sans-serif';
-  ctx.fillText(`Data do Teste: ${dateStr} às ${timeStr}`, 50, 145);
+  ctx.font = '14px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`Emitido em: ${dateStr} às ${timeStr}`, 50, 136);
 
-  // Device Info bar if available
-  const devTitle = [deviceInfo?.brand, deviceInfo?.model].filter(Boolean).join(' ') || 'Smartphone / Celular Testado';
-  ctx.fillStyle = '#cbd5e1';
-  ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
-  ctx.fillText(`Aparelho: ${devTitle}`, 50, 175);
+  // Real Device Info Card in Header
+  const devTitle = [deviceInfo?.brand, deviceInfo?.model].filter(Boolean).join(' ') || 'Smartphone';
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(50, 155, width - 100, 70);
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(50, 155, width - 100, 70);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`📱 ${devTitle}`, 68, 185);
+
+  const specsList = [
+    deviceInfo?.osName ? `🤖 ${deviceInfo.osName} ${deviceInfo.osVersion || ''}`.trim() : '',
+    deviceInfo?.ramText && deviceInfo.ramText !== 'Não disponível' ? `💾 ${deviceInfo.ramText}` : '',
+    deviceInfo?.storageText && deviceInfo.storageText !== 'Não disponível' ? `💽 ${deviceInfo.storageText}` : '',
+    deviceInfo?.screenText && deviceInfo.screenText !== 'Não disponível' ? `📺 ${deviceInfo.screenText}` : '',
+  ].filter(Boolean);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '14px system-ui, -apple-system, sans-serif';
+  ctx.fillText(specsList.join('   •   ') || 'Dados de hardware detectados do dispositivo', 68, 210);
 
   // Summary Metrics Badges
   const stats = calculateReportStats(checklist);
-  const badgeY = 215;
+  const badgeY = 245;
 
   const badges = [
     { label: 'APROVADOS', value: `${stats.approved}`, color: '#10b981', bg: '#064e3b' },
@@ -140,175 +171,134 @@ export async function generateTestReportImage(
     { label: 'TOTAL TESTADOS', value: `${stats.total - stats.untested}/${stats.total}`, color: '#38bdf8', bg: '#0c4a6e' },
   ];
 
-  let badgeX = 50;
+  let currentBadgeX = 50;
   badges.forEach((b) => {
-    const boxW = 200;
-    const boxH = 65;
-
-    // Rounded rect
+    const badgeW = 205;
     ctx.fillStyle = b.bg;
-    roundRect(ctx, badgeX, badgeY, boxW, boxH, 12);
-    ctx.fill();
-
+    ctx.fillRect(currentBadgeX, badgeY, badgeW, 58);
     ctx.strokeStyle = b.color;
     ctx.lineWidth = 1.5;
-    roundRect(ctx, badgeX, badgeY, boxW, boxH, 12);
-    ctx.stroke();
+    ctx.strokeRect(currentBadgeX, badgeY, badgeW, 58);
 
     ctx.fillStyle = '#e2e8f0';
     ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
-    ctx.fillText(b.label, badgeX + 16, badgeY + 25);
+    ctx.fillText(b.label, currentBadgeX + 16, badgeY + 22);
 
     ctx.fillStyle = b.color;
-    ctx.font = 'bold 24px system-ui, -apple-system, sans-serif';
-    ctx.fillText(b.value, badgeX + 16, badgeY + 52);
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.fillText(b.value, currentBadgeX + 16, badgeY + 48);
 
-    badgeX += boxW + 20;
+    currentBadgeX += badgeW + 18;
   });
 
-  // Divider Line
-  ctx.strokeStyle = '#334155';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(50, 305);
-  ctx.lineTo(width - 50, 305);
-  ctx.stroke();
+  // Checklist Items in 2 Columns
+  const startY = headerHeight + 10;
+  const colWidth = (width - 130) / 2;
 
-  // Grid of Checklist items (2 columns)
-  const startY = 330;
-  const colWidth = (width - 120) / 2;
-
-  items.forEach((item: ChecklistItemConfig, index: number) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = 50 + col * (colWidth + 20);
-    const y = startY + row * rowHeight;
+  items.forEach((item, index) => {
+    const isCol2 = index >= Math.ceil(items.length / 2);
+    const colIndex = isCol2 ? index - Math.ceil(items.length / 2) : index;
+    const x = isCol2 ? 50 + colWidth + 30 : 50;
+    const y = startY + colIndex * rowHeight;
 
     const state = checklist[item.key as ChecklistItemKey];
+    const status = state?.status || '';
+
+    // Status mapping & styling
     let statusLabel = 'NÃO TESTADO';
     let statusColor = '#64748b';
-    let statusBg = '#1e293b';
+    let statusBg = '#0f172a';
 
-    if (state && state.status) {
-      if (
-        state.status === 'sim' ||
-        state.status === 'funciona' ||
-        state.status === 'sim_area' ||
-        state.status === 'completo'
-      ) {
-        statusLabel = 'APROVADO (OK)';
-        statusColor = '#10b981';
-        statusBg = '#064e3b';
-      } else if (
-        state.status === 'com_detalhes' ||
-        state.status === 'com_dificuldade' ||
-        state.status === 'mau_toque' ||
-        state.status === 'parcial'
-      ) {
-        statusLabel = 'C/ DETALHES';
-        statusColor = '#f59e0b';
-        statusBg = '#78350f';
-      } else if (
-        state.status === 'nao' ||
-        state.status === 'nao_funciona' ||
-        state.status === 'nao_area' ||
-        state.status === 'inoperante'
-      ) {
-        statusLabel = 'NÃO FUNCIONA';
-        statusColor = '#ef4444';
-        statusBg = '#7f1d1d';
-      } else if (state.status === 'nao_possui' || state.status === 'sem_leitor') {
-        statusLabel = 'NÃO POSSUI';
-        statusColor = '#94a3b8';
-        statusBg = '#334155';
-      }
+    if (
+      status === 'sim' ||
+      status === 'funciona' ||
+      status === 'sim_area' ||
+      status === 'completo'
+    ) {
+      statusLabel = '✓ APROVADO / OK';
+      statusColor = '#10b981';
+      statusBg = '#064e3b';
+    } else if (
+      status === 'com_detalhes' ||
+      status === 'com_dificuldade' ||
+      status === 'mau_toque' ||
+      status === 'parcial'
+    ) {
+      statusLabel = '⚠ COM DETALHES';
+      statusColor = '#f59e0b';
+      statusBg = '#78350f';
+    } else if (
+      status === 'nao' ||
+      status === 'nao_funciona' ||
+      status === 'nao_area' ||
+      status === 'inoperante'
+    ) {
+      statusLabel = '✕ NÃO FUNCIONA';
+      statusColor = '#ef4444';
+      statusBg = '#7f1d1d';
+    } else if (status === 'nao_possui' || status === 'sem_leitor') {
+      statusLabel = '— NÃO POSSUI';
+      statusColor = '#94a3b8';
+      statusBg = '#1e293b';
     }
 
-    // Row Card Background
+    // Row Container
     ctx.fillStyle = '#0f172a';
-    roundRect(ctx, x, y, colWidth, 52, 8);
-    ctx.fill();
-
+    ctx.fillRect(x, y, colWidth, rowHeight - 10);
     ctx.strokeStyle = '#1e293b';
     ctx.lineWidth = 1;
-    roundRect(ctx, x, y, colWidth, 52, 8);
-    ctx.stroke();
+    ctx.strokeRect(x, y, colWidth, rowHeight - 10);
 
     // Item Title
     ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`${index + 1}. ${item.title}`, x + 14, y + 24);
+    ctx.font = 'bold 15px system-ui, -apple-system, sans-serif';
+    ctx.fillText(item.title, x + 16, y + 26);
 
-    // Observation or subtitle
-    ctx.fillStyle = state?.observation ? '#94a3b8' : '#475569';
-    ctx.font = '11px system-ui, -apple-system, sans-serif';
-    const obsText = state?.observation ? `Obs: ${state.observation}` : item.subtitle;
-    const truncatedObs = obsText.length > 40 ? `${obsText.slice(0, 38)}...` : obsText;
-    ctx.fillText(truncatedObs, x + 14, y + 42);
+    // Subtitle / Note
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px system-ui, -apple-system, sans-serif';
+    const note = state?.observation || item.subtitle;
+    const truncatedNote = note.length > 38 ? `${note.substring(0, 38)}...` : note;
+    ctx.fillText(truncatedNote, x + 16, y + 43);
 
-    // Status Badge on the right
-    const badgeW = 120;
-    const badgeH = 28;
-    const badgePosX = x + colWidth - badgeW - 12;
-    const badgePosY = y + 12;
+    // Status Pill
+    const pillW = 160;
+    const pillH = 32;
+    const pillX = x + colWidth - pillW - 12;
+    const pillY = y + 11;
 
     ctx.fillStyle = statusBg;
-    roundRect(ctx, badgePosX, badgePosY, badgeW, badgeH, 6);
-    ctx.fill();
-
+    ctx.fillRect(pillX, pillY, pillW, pillH);
     ctx.strokeStyle = statusColor;
     ctx.lineWidth = 1;
-    roundRect(ctx, badgePosX, badgePosY, badgeW, badgeH, 6);
-    ctx.stroke();
+    ctx.strokeRect(pillX, pillY, pillW, pillH);
 
     ctx.fillStyle = statusColor;
-    ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+    ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(statusLabel, badgePosX + badgeW / 2, badgePosY + 18);
-    ctx.textAlign = 'left'; // Reset
+    ctx.fillText(statusLabel, pillX + pillW / 2, pillY + 21);
+    ctx.textAlign = 'left';
   });
 
-  // Footer Section
-  const footY = height - 95;
-
-  ctx.strokeStyle = '#334155';
+  // Footer
+  const footerY = height - footerHeight + 25;
+  ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(50, footY);
-  ctx.lineTo(width - 50, footY);
+  ctx.moveTo(50, footerY);
+  ctx.lineTo(width - 50, footerY);
   ctx.stroke();
 
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = '#64748b';
   ctx.font = '13px system-ui, -apple-system, sans-serif';
-  ctx.fillText('Comprovante emitido eletronicamente via TechCheck bancada técnica de testes.', 50, footY + 35);
-  ctx.fillText('Validação física de hardware, periféricos, sensores e conectividade.', 50, footY + 55);
+  ctx.fillText('TechCheck Celular • Sistema de Diagnóstico de Hardware e Bancada', 50, footerY + 35);
+  ctx.fillText('Relatório gerado digitalmente para conferência e arquivo', 50, footerY + 58);
 
   ctx.fillStyle = '#10b981';
-  ctx.font = 'bold 15px system-ui, -apple-system, sans-serif';
+  ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText('TECHCHECK LAUDO OFICIAL', width - 50, footY + 45);
+  ctx.fillText('STATUS: DOCUMENTO FINALIZADO', width - 50, footerY + 45);
   ctx.textAlign = 'left';
 
   return canvas.toDataURL('image/png');
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + width - radius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-  ctx.lineTo(x + width, y + height - radius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  ctx.lineTo(x + radius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
 }

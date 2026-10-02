@@ -129,6 +129,7 @@ export const SAMPLE_ORDERS: ServiceOrder[] = [
       chip_1: { status: 'funciona', observation: 'Claro 5G reconhecido' },
       chip_2: { status: 'nao_possui', observation: 'Slot 2 vazio / aparelho single sim físico' },
       signal_area: { status: 'sim_area', observation: '4 barras 5G' },
+      charging_port: { status: 'sim', observation: 'Carregamento turbo OK (9V / 1.8A)' },
     },
     budget: {
       technicianName: 'Carlos Tech',
@@ -201,6 +202,7 @@ export const SAMPLE_ORDERS: ServiceOrder[] = [
       chip_1: { status: 'funciona', observation: 'Vivo testado com sucesso' },
       chip_2: { status: 'nao_possui', observation: 'eSIM não configurado' },
       signal_area: { status: 'sim_area', observation: 'Sinal 4G/5G cheio' },
+      charging_port: { status: 'sim', observation: 'Carregamento Lightning 5V 2A OK' },
     },
     budget: {
       technicianName: 'Rodrigo Especialista',
