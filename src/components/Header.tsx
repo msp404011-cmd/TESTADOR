@@ -4,6 +4,7 @@ import {
   RotateCcw,
   Image as ImageIcon,
   Share2,
+  Lock,
   X,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -12,12 +13,14 @@ interface HeaderProps {
   onResetTest: () => void;
   onGenerateImage: () => void;
   onShareWhatsApp: () => void;
+  onLockSystem?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onResetTest,
   onGenerateImage,
   onShareWhatsApp,
+  onLockSystem,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -110,7 +113,21 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Compartilhar no WhatsApp</span>
               </button>
 
-              <div className="pt-2 border-t border-slate-800">
+              <div className="pt-2 border-t border-slate-800 space-y-1">
+                {onLockSystem && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onLockSystem();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-800 text-amber-300 text-left cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4 text-amber-400" />
+                    <span>Bloquear Sistema (Sair)</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {

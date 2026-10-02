@@ -22,6 +22,8 @@ import { BottomNavBar, MainNavTab } from './components/BottomNavBar';
 import { HardwareTesterModal } from './components/HardwareTesterModal';
 import { FullscreenTouchTester } from './components/FullscreenTouchTester';
 import { TestImagePreviewModal } from './components/TestImagePreviewModal';
+import { TesterPasscodeModal } from './components/TesterPasscodeModal';
+import { SystemLockScreen } from './components/SystemLockScreen';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { useRealDeviceInfo } from './hooks/useRealDeviceInfo';
 import { generateTestReportImage, calculateReportStats } from './utils/generateTestReportImage';
@@ -46,6 +48,45 @@ export default function App() {
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [reportImageDataUrl, setReportImageDataUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  // Full System Lock Screen state (password: 1507mm)
+  const [isSystemUnlocked, setIsSystemUnlocked] = useState<boolean>(() => {
+    return sessionStorage.getItem('techcheck_system_unlocked') === 'true';
+  });
+
+  const handleUnlockSystem = () => {
+    sessionStorage.setItem('techcheck_system_unlocked', 'true');
+    setIsSystemUnlocked(true);
+  };
+
+  const handleLockSystem = () => {
+    sessionStorage.removeItem('techcheck_system_unlocked');
+    setIsSystemUnlocked(false);
+    showToast('Sistema bloqueado com sucesso.');
+  };
+
+  // Secret passcode protection for testador (password: 1507)
+  const [isTesterUnlocked, setIsTesterUnlocked] = useState(false);
+  const [isPasscodeModalOpen, setIsPasscodeModalOpen] = useState(false);
+  const [pendingTesterAction, setPendingTesterAction] = useState<(() => void) | null>(null);
+
+  const requireTesterAccess = (action: () => void) => {
+    if (isTesterUnlocked) {
+      action();
+    } else {
+      setPendingTesterAction(() => action);
+      setIsPasscodeModalOpen(true);
+    }
+  };
+
+  const handlePasscodeSuccess = () => {
+    setIsTesterUnlocked(true);
+    setIsPasscodeModalOpen(false);
+    if (pendingTesterAction) {
+      pendingTesterAction();
+      setPendingTesterAction(null);
+    }
+  };
 
   // Real smartphone hardware detection (Brand, Model, OS, RAM, Storage, Screen Resolution, Battery)
   const realDeviceInfo = useRealDeviceInfo();
@@ -149,12 +190,14 @@ export default function App() {
   };
 
   const handleOpenTester = (key?: ChecklistItemKey) => {
-    if (key === 'touch_screen') {
-      setIsFullscreenTouchOpen(true);
-      return;
-    }
-    setTesterKey(key || null);
-    setIsTesterOpen(true);
+    requireTesterAccess(() => {
+      if (key === 'touch_screen') {
+        setIsFullscreenTouchOpen(true);
+        return;
+      }
+      setTesterKey(key || null);
+      setIsTesterOpen(true);
+    });
   };
 
   // Generate image and open preview modal first
@@ -185,11 +228,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-blue-500 selection:text-white">
+      {/* INITIAL FULL SYSTEM LOCK SCREEN (Password: 1507mm) */}
+      {!isSystemUnlocked && (
+        <SystemLockScreen
+          onUnlock={handleUnlockSystem}
+          requiredPassword="1507mm"
+        />
+      )}
+
       {/* TOP HEADER matching reference image */}
       <Header
         onResetTest={handleResetTest}
         onGenerateImage={handleGenerateAndPreviewImage}
         onShareWhatsApp={handleShareWhatsApp}
+        onLockSystem={handleLockSystem}
       />
 
       {/* TOAST NOTIFICATION */}
@@ -214,8 +266,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                setRunnerCategories(CATEGORY_CARDS);
-                setActiveScreen('runner');
+                requireTesterAccess(() => {
+                  setRunnerCategories(CATEGORY_CARDS);
+                  setActiveScreen('runner');
+                });
               }}
               className="w-full p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold shadow-xl shadow-blue-950/60 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between group"
             >
@@ -277,8 +331,10 @@ export default function App() {
             <TestSelectionView
               onBack={() => setActiveScreen('home')}
               onStartSelected={(selected) => {
-                setRunnerCategories(selected);
-                setActiveScreen('runner');
+                requireTesterAccess(() => {
+                  setRunnerCategories(selected);
+                  setActiveScreen('runner');
+                });
               }}
             />
           </div>
@@ -320,9 +376,26 @@ export default function App() {
       {/* DOCKED BOTTOM NAVIGATION BAR matching mobile thumb ergonomics */}
       <BottomNavBar
         currentTab={activeScreen === 'runner' ? 'tests' : activeScreen}
-        onChangeTab={(tab) => setActiveScreen(tab)}
+        onChangeTab={(tab) => {
+          if (tab === 'tests') {
+            requireTesterAccess(() => setActiveScreen(tab));
+          } else {
+            setActiveScreen(tab);
+          }
+        }}
         testedCount={testedCount}
         totalCount={stats.total}
+      />
+
+      {/* SECRET PASSCODE ACCESS MODAL (Code: 1507) */}
+      <TesterPasscodeModal
+        isOpen={isPasscodeModalOpen}
+        onClose={() => {
+          setIsPasscodeModalOpen(false);
+          setPendingTesterAction(null);
+        }}
+        onSuccess={handlePasscodeSuccess}
+        requiredCode="1507"
       />
 
       {/* PREVIEW MODAL BEFORE SAVING IMAGE TO GALLERY */}
