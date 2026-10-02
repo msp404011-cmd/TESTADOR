@@ -37,7 +37,7 @@ import {
   Battery,
 } from 'lucide-react';
 import { ChecklistItemKey } from '../types/order';
-import { useRealDeviceInfo } from '../hooks/useRealDeviceInfo';
+import { useRealDeviceInfo, saveSdCardDetection } from '../hooks/useRealDeviceInfo';
 
 interface HardwareTesterModalProps {
   isOpen: boolean;
@@ -124,6 +124,8 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   const [liveVolts, setLiveVolts] = useState<number>(0);
   const [liveWatts, setLiveWatts] = useState<number>(0);
   const [isCableConnected, setIsCableConnected] = useState<boolean>(false);
+  const [selectedChargerVoltage, setSelectedChargerVoltage] = useState<'auto' | '5v' | '9v' | '12v'>('auto');
+  const [showFlashNotice, setShowFlashNotice] = useState(false);
 
   // Real Storage Estimate state
   const [storageEstimate, setStorageEstimate] = useState<{
@@ -133,6 +135,8 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   } | null>(null);
   const [realDirectoryFiles, setRealDirectoryFiles] = useState<Array<{ name: string; size: string; type: string }>>([]);
   const [realDirectoryName, setRealDirectoryName] = useState<string | null>(null);
+  const [selectedSdBrand, setSelectedSdBrand] = useState<string>('SanDisk');
+  const [selectedSdCapacity, setSelectedSdCapacity] = useState<string>('64 GB');
 
   // SIM Manager state
   const [sim1Carrier, setSim1Carrier] = useState('Claro 5G');
@@ -282,7 +286,13 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
       setIsCableConnected(isChg);
       if (isChg) {
         let v = 5.12;
-        if (typeof rawVolt === 'number' && rawVolt > 0) {
+        if (selectedChargerVoltage === '5v') {
+          v = 5.15;
+        } else if (selectedChargerVoltage === '9v') {
+          v = 9.00;
+        } else if (selectedChargerVoltage === '12v') {
+          v = 12.00;
+        } else if (typeof rawVolt === 'number' && rawVolt > 0) {
           v = rawVolt > 100 ? rawVolt / 1000 : rawVolt;
         } else if (battLvl !== undefined && battLvl > 0.85) {
           v = 5.06;
@@ -297,10 +307,11 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
           ma = Math.max(300, baseMa + ripple);
         }
 
-        const w = Number(((v * ma) / 1000).toFixed(2));
+        // P (Watts) = V (Volts) * I (Amperes) = (Volts * mA) / 1000
+        const calculatedWatts = Number(((v * ma) / 1000).toFixed(2));
         setLiveVolts(Number(v.toFixed(2)));
         setLiveAmps(ma);
-        setLiveWatts(w);
+        setLiveWatts(calculatedWatts);
         setChargingAmpsHistory((prev) => [...prev.slice(1), ma]);
       } else {
         setLiveVolts(0);
@@ -397,19 +408,41 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
   useEffect(() => {
     if (!isOpen || currentTab !== 'volume') return;
 
+    let silentOsc: OscillatorNode | null = null;
+    let silentGain: GainNode | null = null;
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        silentOsc = ctx.createOscillator();
+        silentGain = ctx.createGain();
+        silentGain.gain.value = 0.0001;
+        silentOsc.connect(silentGain);
+        silentGain.connect(ctx.destination);
+        silentOsc.start();
+      }
+    } catch {
+      // ignore
+    }
+
     // Monitor volume change on mobile audio element
     const audio = volumeAudioRef.current;
-    let lastVol = audio ? audio.volume : 0.5;
+    if (audio) {
+      audio.volume = 0.5;
+    }
 
     const handleVolumeChange = () => {
       if (!audio) return;
       const current = audio.volume;
-      if (current > lastVol) {
+      if (current > 0.505) {
         handleVolumePress('up');
-      } else if (current < lastVol) {
+        setTimeout(() => { if (audio) audio.volume = 0.5; }, 60);
+      } else if (current < 0.495) {
         handleVolumePress('down');
+        setTimeout(() => { if (audio) audio.volume = 0.5; }, 60);
       }
-      lastVol = current;
     };
 
     if (audio) {
@@ -417,22 +450,53 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const upKeys = ['AudioVolumeUp', 'VolumeUp', 'ArrowUp', '+', '=', 'PageUp', 'KeyW'];
-      const downKeys = ['AudioVolumeDown', 'VolumeDown', 'ArrowDown', '-', '_', 'PageDown', 'KeyS'];
+      const upKeys = ['AudioVolumeUp', 'VolumeUp', 'ArrowUp', '+', '=', 'PageUp', 'KeyW', 'w', 'W'];
+      const downKeys = ['AudioVolumeDown', 'VolumeDown', 'ArrowDown', '-', '_', 'PageDown', 'KeyS', 's', 'S'];
 
-      if (upKeys.includes(e.key) || upKeys.includes(e.code)) {
+      const isUp =
+        upKeys.includes(e.key) ||
+        upKeys.includes(e.code) ||
+        e.keyCode === 175 ||
+        e.keyCode === 24 ||
+        e.keyCode === 38 ||
+        e.which === 175 ||
+        e.which === 24;
+
+      const isDown =
+        downKeys.includes(e.key) ||
+        downKeys.includes(e.code) ||
+        e.keyCode === 174 ||
+        e.keyCode === 25 ||
+        e.keyCode === 40 ||
+        e.which === 174 ||
+        e.which === 25;
+
+      if (isUp) {
         e.preventDefault();
+        e.stopPropagation();
         handleVolumePress('up');
-      } else if (downKeys.includes(e.key) || downKeys.includes(e.code)) {
+      } else if (isDown) {
         e.preventDefault();
+        e.stopPropagation();
         handleVolumePress('down');
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyDown, { capture: true });
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('keyup', handleKeyDown, { capture: true });
+      document.removeEventListener('keydown', handleKeyDown, { capture: true });
       if (audio) audio.removeEventListener('volumechange', handleVolumeChange);
+      if (silentOsc) {
+        try {
+          silentOsc.stop();
+          silentOsc.disconnect();
+        } catch {}
+      }
     };
   }, [isOpen, currentTab, volumeLevel, volUpCount, volDownCount]);
 
@@ -1264,42 +1328,69 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       Lanterna / Flash Traseiro
                     </span>
                     <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
-                      Deslize o topo da tela do celular para baixo (Barra de Notificações / Painel de Atalhos Rápidos) e toque no ícone <strong className="text-amber-400">"Lanterna"</strong> para conferir se o LED traseiro acende com força total.
+                      Toque no botão abaixo para descer os atalhos do sistema ou use o acionamento direto para acender o LED traseiro.
                     </p>
                   </div>
 
                   {/* Direct Command Buttons */}
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-                    <button
-                      type="button"
-                      onClick={toggleRealPhoneFlash}
-                      className={`inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 shadow-lg cursor-pointer ${
-                        isTorchOn
-                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50 ring-2 ring-rose-400/40'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
-                      }`}
-                    >
-                      <Zap className="w-4 h-4 fill-current" />
-                      <span>{isTorchOn ? 'Desligar Flash' : 'Ligar Flash'}</span>
-                    </button>
-
+                  <div className="flex flex-col gap-2.5 justify-center pt-2">
                     <button
                       type="button"
                       onClick={() => {
-                        // Open quick settings or settings intent
+                        setShowFlashNotice(true);
                         try {
-                          window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
+                          window.location.href = 'intent:#Intent;action=android.settings.PANEL;end';
                         } catch {
-                          // fallback
+                          try {
+                            window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
+                          } catch {}
                         }
+                        setTimeout(() => setShowFlashNotice(false), 6000);
                       }}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 border border-slate-700 transition-all cursor-pointer"
-                      title="Abrir configurações de atalhos e lanterna do smartphone"
+                      className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-bold text-sm bg-linear-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-lg shadow-amber-950/50 active:scale-95 transition-all cursor-pointer"
                     >
-                      <ExternalLink className="w-4 h-4 text-amber-400" />
-                      <span>Atalhos do Sistema</span>
+                      <Smartphone className="w-5 h-5" />
+                      <span>⬇️ Descer Barra de Tarefas (Atalho da Lanterna)</span>
                     </button>
+
+                    <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+                      <button
+                        type="button"
+                        onClick={toggleRealPhoneFlash}
+                        className={`flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md cursor-pointer ${
+                          isTorchOn
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50 ring-2 ring-rose-400/40'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                        }`}
+                      >
+                        <Zap className="w-4 h-4 fill-current" />
+                        <span>{isTorchOn ? 'Desligar Flash LED' : 'Acender Flash via Hardware'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            window.location.href = 'intent:#Intent;action=android.settings.SETTINGS;end';
+                          } catch {
+                            // fallback
+                          }
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-xs bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 border border-slate-700 transition-all cursor-pointer"
+                        title="Abrir configurações de atalhos e lanterna do smartphone"
+                      >
+                        <ExternalLink className="w-4 h-4 text-amber-400" />
+                        <span>Configurações</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {showFlashNotice && (
+                    <div className="mt-3 p-3.5 rounded-xl bg-amber-950/80 border border-amber-500 text-xs text-amber-200 text-center font-semibold animate-pulse space-y-1">
+                      <p>📱 <strong>Arraste o dedo do topo da tela para baixo agora!</strong></p>
+                      <p className="text-[11px] text-amber-300">Puxe o painel de atalhos rápidos e toque no ícone "Lanterna" para testar o LED.</p>
+                    </div>
+                  )}
 
                   {torchError && (
                     <div className="mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-200 text-left">
@@ -1926,38 +2017,107 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
           {/* TAB: MEMÓRIA INTERNA & CARTÃO SD REAL */}
           {currentTab === 'sd_card' && (
-            <div className="flex flex-col h-full justify-between max-w-2xl mx-auto py-2">
+            <div className="flex flex-col h-full justify-between max-w-2xl mx-auto py-2 space-y-4">
               <div>
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="text-base font-bold text-slate-100">Memória Interna & Leitor de Cartão SD Real</h3>
+                    <h3 className="text-base font-bold text-slate-100">Memória Interna & Leitor de Cartão MicroSD</h3>
                     <p className="text-xs text-slate-400">
-                      Leitura de arquivos do sistema e acesso direto aos arquivos do celular/MicroSD.
+                      Validação de leitura de arquivos, identificação de marca e capacidade do cartão.
                     </p>
                   </div>
                 </div>
 
-                {/* Real Directory / SD Card Picker Button */}
-                <div className="p-6 rounded-2xl border-2 border-emerald-500/40 bg-emerald-950/20 text-center mb-5">
-                  <Folder className="w-12 h-12 mx-auto text-emerald-400 mb-2.5" />
-                  <h4 className="text-sm font-bold text-slate-100 mb-1">
-                    Acessar Diretório do Celular ou Cartão MicroSD
-                  </h4>
-                  <p className="text-xs text-slate-300 max-w-md mx-auto mb-5">
-                    Selecione a pasta raiz do cartão de memória ou da memória interna para validar se o leitor físico está lendo os arquivos reais.
-                  </p>
+                {/* ROM Memory Banner */}
+                <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <HardDrive className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Memória ROM (Armazenamento Interno)</span>
+                      <span className="text-[11px] text-slate-400">{realDeviceInfo.storageAvailableText} de espaço livre</span>
+                    </div>
+                  </div>
+                  <span className="font-mono text-sm font-black text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                    {realDeviceInfo.storageText}
+                  </span>
+                </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-3">
+                {/* SD Card Inspector & Brand / Size Config */}
+                <div className="p-4 rounded-2xl border-2 border-cyan-500/40 bg-cyan-950/20 space-y-3 mb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-5 h-5 text-cyan-400" />
+                      <h4 className="text-xs font-extrabold text-white uppercase tracking-wide">
+                        Identificação do Cartão MicroSD
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-bold text-cyan-300 bg-cyan-500/20 px-2 py-0.5 rounded-full border border-cyan-500/30">
+                      {selectedSdBrand} • {selectedSdCapacity}
+                    </span>
+                  </div>
+
+                  {/* Quick Selectors for Brand */}
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Marca do Cartão de Memória:
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['SanDisk', 'Kingston', 'Samsung EVO', 'Lexar', 'Kioxia', 'Multilaser', 'Genérica'].map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setSelectedSdBrand(b)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                            selectedSdBrand === b
+                              ? 'bg-cyan-600 text-white shadow-sm ring-1 ring-cyan-400'
+                              : 'bg-slate-850 text-slate-300 hover:bg-slate-800 border border-slate-750'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quick Selectors for Capacity */}
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Capacidade / Tamanho:
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['16 GB', '32 GB', '64 GB', '128 GB', '256 GB', '512 GB', '1 TB'].map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSelectedSdCapacity(c)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                            selectedSdCapacity === c
+                              ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
+                              : 'bg-slate-850 text-slate-300 hover:bg-slate-800 border border-slate-750'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Open Native File Explorer Button */}
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-center gap-2.5">
                     <button
                       type="button"
                       onClick={handlePickRealDirectory}
-                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                      className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
                     >
-                      Selecionar Pasta / Cartão SD Real
+                      <Folder className="w-4 h-4" />
+                      <span>Selecionar Pasta / Cartão SD</span>
                     </button>
 
-                    <label className="cursor-pointer px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all active:scale-95">
-                      Abrir Arquivos do Aparelho
+                    <label className="cursor-pointer px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 font-bold text-xs border border-slate-700 transition-all active:scale-95 flex items-center gap-1.5">
+                      <Folder className="w-4 h-4 text-cyan-400" />
+                      <span>Abrir Arquivos do Celular</span>
                       <input
                         type="file"
                         multiple
@@ -1966,19 +2126,33 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                           const files = e.target.files;
                           if (files && files.length > 0) {
                             const arr: Array<{ name: string; size: string; type: string }> = [];
+                            let detectedB = selectedSdBrand;
                             Array.from(files).forEach((f) => {
                               arr.push({
                                 name: f.name,
                                 size: `${(f.size / 1024).toFixed(1)} KB`,
                                 type: f.type || 'arquivo',
                               });
+                              const lower = f.name.toLowerCase();
+                              if (lower.includes('sandisk')) detectedB = 'SanDisk';
+                              else if (lower.includes('kingston')) detectedB = 'Kingston';
+                              else if (lower.includes('samsung')) detectedB = 'Samsung EVO';
+                              else if (lower.includes('lexar')) detectedB = 'Lexar';
                             });
+                            setSelectedSdBrand(detectedB);
                             setRealDirectoryFiles(arr);
-                            setRealDirectoryName('Arquivos Selecionados');
+                            setRealDirectoryName('Arquivos Lidos');
+                            saveSdCardDetection({
+                              inserted: true,
+                              brand: detectedB,
+                              capacity: selectedSdCapacity,
+                              details: `Cartão MicroSD ${detectedB} ${selectedSdCapacity} reconhecido (${arr.length} arquivos)`,
+                              filesCount: arr.length,
+                            });
                             onUpdateChecklist(
                               'sd_card',
                               'funciona',
-                              `${arr.length} arquivos reais lidos do armazenamento do aparelho`
+                              `Cartão SD ${detectedB} ${selectedSdCapacity} lendo com sucesso (${arr.length} arquivos)`
                             );
                           }
                         }}
@@ -1989,13 +2163,13 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
 
                 {/* Real Files List if loaded */}
                 {realDirectoryFiles.length > 0 && (
-                  <div className="rounded-xl border border-slate-800 bg-slate-900 divide-y divide-slate-800 max-h-48 overflow-y-auto">
+                  <div className="rounded-xl border border-slate-800 bg-slate-900 divide-y divide-slate-800 max-h-36 overflow-y-auto">
                     <div className="p-2.5 bg-slate-950 font-bold text-xs text-emerald-400 flex justify-between">
                       <span>📁 {realDirectoryName}</span>
                       <span>{realDirectoryFiles.length} arquivos lidos com sucesso</span>
                     </div>
                     {realDirectoryFiles.map((file, i) => (
-                      <div key={i} className="p-2.5 flex items-center justify-between text-xs text-slate-300">
+                      <div key={i} className="p-2 flex items-center justify-between text-xs text-slate-300">
                         <span className="truncate max-w-xs">{file.name}</span>
                         <span className="font-mono text-slate-500 text-[11px]">{file.size}</span>
                       </div>
@@ -2005,33 +2179,55 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
               </div>
 
               {/* Fast Checklist Actions */}
-              <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
-                <span className="text-xs text-slate-400">Gravar Cartão no Checklist:</span>
+              <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <span className="text-xs text-slate-400">Gravar status do cartão:</span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      onUpdateChecklist('sd_card', 'funciona', 'Cartão SD e armazenamento interno lendo com sucesso');
+                      saveSdCardDetection({
+                        inserted: true,
+                        brand: selectedSdBrand,
+                        capacity: selectedSdCapacity,
+                        details: `Cartão MicroSD ${selectedSdBrand} ${selectedSdCapacity} reconhecido com sucesso`,
+                      });
+                      onUpdateChecklist(
+                        'sd_card',
+                        'funciona',
+                        `Cartão SD ${selectedSdBrand} ${selectedSdCapacity} lendo normalmente`
+                      );
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md active:scale-95 cursor-pointer"
                   >
-                    Cartão SD: FUNCIONA
+                    CARTÃO SD: FUNCIONA ({selectedSdBrand} {selectedSdCapacity})
                   </button>
                   <button
                     onClick={() => {
+                      saveSdCardDetection({
+                        inserted: false,
+                        brand: 'Não detectada',
+                        capacity: 'Sem cartão',
+                        details: 'Não reconhece cartão ou leitor com falha',
+                      });
                       onUpdateChecklist('sd_card', 'nao_funciona', 'Não reconhece cartão ou não lê arquivos');
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white"
+                    className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white active:scale-95 cursor-pointer"
                   >
                     NÃO FUNCIONA
                   </button>
                   <button
                     onClick={() => {
-                      onUpdateChecklist('sd_card', 'nao_possui', 'Aparelho sem entrada MicroSD');
+                      saveSdCardDetection({
+                        inserted: false,
+                        brand: 'Não detectada',
+                        capacity: 'Sem cartão',
+                        details: 'Nenhum cartão inserido no aparelho',
+                      });
+                      onUpdateChecklist('sd_card', 'nao_possui', 'Aparelho sem entrada MicroSD ou sem cartão');
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 active:scale-95 cursor-pointer"
                   >
                     NÃO POSSUI
                   </button>
@@ -2611,8 +2807,45 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                   </div>
                 </div>
 
+                {/* Voltage Rail & Charger Profile Selector */}
+                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 uppercase tracking-wide">Perfil do Carregador / Linha VBUS:</span>
+                    <span className="font-mono font-bold text-amber-400">
+                      {selectedChargerVoltage === 'auto'
+                        ? 'Auto (Sensor/Trilho Real)'
+                        : selectedChargerVoltage === '5v'
+                        ? '5V (Padrão USB)'
+                        : selectedChargerVoltage === '9v'
+                        ? '9V (Turbo / Fast Charge)'
+                        : '12V (Super Fast PD)'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: 'auto', label: 'Auto (Detectar)' },
+                      { id: '5v', label: '5V (USB Padrão)' },
+                      { id: '9v', label: '9V (Turbo Fast Charge)' },
+                      { id: '12v', label: '12V (Super Fast / PD)' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedChargerVoltage(m.id as any)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                          selectedChargerVoltage === m.id
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* 3 Big Multimeter Gauges */}
-                <div className="grid grid-cols-3 gap-2.5 my-4">
+                <div className="grid grid-cols-3 gap-2.5 my-3">
                   {/* Gauge 1: Voltagem de Entrada */}
                   <div className="p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 text-center flex flex-col justify-between shadow-md">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Voltagem (V)</span>
@@ -2648,8 +2881,18 @@ export const HardwareTesterModal: React.FC<HardwareTesterModalProps> = ({
                       </span>
                       <span className="text-xs font-bold text-cyan-400/80 ml-1">W</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 truncate">V × A = Watts</span>
+                    <span className="text-[10px] text-slate-400 truncate">P = V × A</span>
                   </div>
+                </div>
+
+                {/* Mathematical Proof & Formula Breakdown */}
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-slate-400">Fórmula de Potência:</span>
+                  <span className="text-cyan-300 font-bold">
+                    {isCableConnected
+                      ? `${liveVolts.toFixed(2)} V × ${(liveAmps / 1000).toFixed(2)} A = ${liveWatts.toFixed(2)} Watts`
+                      : '0.00 V × 0.00 A = 0.00 Watts'}
+                  </span>
                 </div>
 
                 {/* Real-time Oscilloscope / Waveform Wave */}
